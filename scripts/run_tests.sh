@@ -136,17 +136,15 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "composition" ]]; then
         "$REPO_DIR/tests/synthetic/invalid/bad_xml" \
         "fail"
     
-    # NOTE: dcpdoctor does not yet validate ContentKind values in strict mode
-    # This test documents desired behavior (should fail once implemented)
-    run_test "CTP-CPL: invalid content kind [TODO]" \
+    # ContentKind validation (strict mode)
+    run_test "CTP-CPL: invalid content kind rejected" \
         "$REPO_DIR/tests/synthetic/invalid/bad_content_kind" \
-        "pass"
+        "cpl_invalid_content_kind"
     
-    # NOTE: dcpdoctor does not yet validate DCI-approved frame rates in strict mode
-    # This test documents desired behavior (should fail once implemented)
-    run_test "CTP-CPL: invalid edit rate [TODO]" \
+    # EditRate validation (strict mode)
+    run_test "CTP-CPL: invalid edit rate rejected" \
         "$REPO_DIR/tests/synthetic/invalid/bad_edit_rate" \
-        "pass"
+        "cpl_invalid_edit_rate"
     
     run_test "CTP-CPL: missing CPL" \
         "$REPO_DIR/tests/synthetic/invalid/missing_cpl" \
@@ -179,6 +177,46 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "integrity" ]]; then
     run_test "CTP-INT: hash mismatch detected" \
         "$REPO_DIR/tests/synthetic/invalid/bad_hash" \
         "pkl_hash_mismatch"
+    echo ""
+fi
+
+# ====== AUDIO TESTS (CTP Section 7) ======
+if [[ -z "$CATEGORY" || "$CATEGORY" == "audio" ]]; then
+    echo -e "${CYAN}── Audio Tests (CTP §7) ──${NC}"
+    
+    # Generated DCP has real audio MXF — validate sample rate
+    run_test "CTP-AUD: valid 48kHz audio (generated DCP)" \
+        "$REPO_DIR/tests/generated/short_2k_24fps" \
+        "pass" "--check-mxf"
+    
+    # ISDCF 5.1 has proper audio
+    ISDCF_51="$REPO_DIR/tests/isdcf/SMPTE_TST-1-Bv21_51-71_20170110_SMPTE_Folders/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_51-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV"
+    run_test "CTP-AUD: ISDCF 5.1 audio valid" \
+        "$ISDCF_51" \
+        "pass" "--check-mxf"
+    
+    # ISDCF 7.1 has proper audio
+    ISDCF_71="$REPO_DIR/tests/isdcf/SMPTE_TST-1-Bv21_51-71_20170110_SMPTE_Folders/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_71-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV"
+    run_test "CTP-AUD: ISDCF 7.1 audio valid" \
+        "$ISDCF_71" \
+        "pass" "--check-mxf"
+    echo ""
+fi
+
+# ====== SECURITY TESTS (CTP Section 8) ======
+if [[ -z "$CATEGORY" || "$CATEGORY" == "security" ]]; then
+    echo -e "${CYAN}── Security Tests (CTP §8) ──${NC}"
+    
+    # Generated DCP should be unencrypted (no KeyId references)
+    run_test "CTP-SEC: unencrypted DCP validates" \
+        "$REPO_DIR/tests/generated/short_2k_24fps" \
+        "pass"
+    
+    # ISDCF content is encrypted — should still validate structure
+    ISDCF_51="$REPO_DIR/tests/isdcf/SMPTE_TST-1-Bv21_51-71_20170110_SMPTE_Folders/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_51-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV"
+    run_test "CTP-SEC: encrypted ISDCF DCP validates" \
+        "$ISDCF_51" \
+        "pass" "--check-mxf"
     echo ""
 fi
 
