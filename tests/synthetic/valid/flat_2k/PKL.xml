@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PackingList xmlns="http://www.smpte-ra.org/schemas/429-8/2007/PKL">
+  <Id>urn:uuid:a7b11d53-8b0e-4bdc-9a5b-ace26455e146</Id>
+  <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <Issuer>dci-ctp test suite</Issuer>
+  <Creator>dci-ctp</Creator>
+  <AssetList>
+    <Asset>
+      <Id>urn:uuid:0cf98ef0-00c0-4e4b-a99f-72007b6f5309</Id>
+      <Hash>ifSdQqxYCMX4n8hLJOByu5NLc84=</Hash>
+      <Size>1040</Size>
+      <Type>text/xml</Type>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:2c55a922-8740-4c11-897c-2c944a97ff00</Id>
+      <Hash>HOr3PfQOUx3zv7JrT7fNlft7/x0=</Hash>
+      <Size>4096</Size>
+      <Type>application/mxf</Type>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:54622d0e-fb71-4033-92dc-266f261fa308</Id>
+      <Hash>YF2z/br/S6E3KTca0MT7qziJN44=</Hash>
+      <Size>2048</Size>
+      <Type>application/mxf</Type>
+    </Asset>
+  </AssetList>
+</PackingList>

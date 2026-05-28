@@ -1,0 +1,4 @@
+# Ignore large test content (download separately)
+tests/isdcf/
+tests/generated/
+*.mxf

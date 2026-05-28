@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PackingList xmlns="http://www.smpte-ra.org/schemas/429-8/2007/PKL">
+  <Id>urn:uuid:00000000-0000-0000-0000-000000000010</Id>
+  <AssetList>
+    <Asset>
+      <Id>urn:uuid:00000000-0000-0000-0000-000000000002</Id>
+      <Hash>AAAAAAAAAAAAAAAAAAAAAAAAAAAA</Hash>
+      <Size>999</Size>
+      <Type>text/xml</Type>
+    </Asset>
+  </AssetList>
+</PackingList>

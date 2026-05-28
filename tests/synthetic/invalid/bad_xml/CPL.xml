@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CompositionPlaylist xmlns="http://www.smpte-ra.org/schemas/429-7/2006/CPL">
+  <Id>urn:uuid:00000000-0000-0000-0000-000000000002</Id>
+  <ContentTitleText>Bad XML Test</ContentTitleText>
+  <BROKEN XML HERE >>>
+</CompositionPlaylist>

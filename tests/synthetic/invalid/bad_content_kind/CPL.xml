@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CompositionPlaylist xmlns="http://www.smpte-ra.org/schemas/429-7/2006/CPL">
+  <Id>urn:uuid:9ec7b0f3-9cd5-4ac9-8d67-b1e534d377e7</Id>
+  <ContentTitleText>Bad Kind</ContentTitleText>
+  <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <ContentKind>INVALID_KIND</ContentKind>
+  <ReelList>
+    <Reel>
+      <Id>urn:uuid:61fdefc9-1cec-45bd-b69d-d608ed8a5655</Id>
+      <AssetList>
+        <MainPicture>
+          <Id>urn:uuid:daf22b6e-cda0-4fdf-a7e2-899dc89bf67a</Id>
+          <EditRate>24 1</EditRate>
+          <IntrinsicDuration>48</IntrinsicDuration>
+          <Duration>48</Duration>
+          <FrameRate>24 1</FrameRate>
+          <ScreenAspectRatio>2048 1080</ScreenAspectRatio>
+        </MainPicture>
+        <MainSound>
+          <Id>urn:uuid:0491ee07-4133-44cd-9f8c-4fe81d546acd</Id>
+          <EditRate>24 1</EditRate>
+          <IntrinsicDuration>48</IntrinsicDuration>
+          <Duration>48</Duration>
+        </MainSound>
+      </AssetList>
+    </Reel>
+  </ReelList>
+</CompositionPlaylist>

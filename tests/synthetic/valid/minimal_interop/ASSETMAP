@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AssetMap xmlns="http://www.digicine.com/PROTO-ASDCP-AM-20040311#">
+  <Id>urn:uuid:d0bab454-7421-4133-b26b-aad16d751bc4</Id>
+  <Creator>dci-ctp</Creator>
+  <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <AssetList>
+    <Asset>
+      <Id>urn:uuid:4ceb5f2c-38ca-40c5-978f-cc2dc98c3772</Id>
+      <PackingList>true</PackingList>
+      <ChunkList>
+        <Chunk><Path>PKL.xml</Path></Chunk>
+      </ChunkList>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:b9867f6a-2aee-4869-bd9d-affb34a8c1d1</Id>
+      <ChunkList>
+        <Chunk><Path>CPL.xml</Path></Chunk>
+      </ChunkList>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:eeaa03a1-a6a9-4eea-ad78-c40b7d31f45d</Id>
+      <ChunkList>
+        <Chunk><Path>picture.mxf</Path></Chunk>
+      </ChunkList>
+    </Asset>
+  </AssetList>
+</AssetMap>

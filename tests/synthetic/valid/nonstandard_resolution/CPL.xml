@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CompositionPlaylist xmlns="http://www.smpte-ra.org/schemas/429-7/2006/CPL">
+  <Id>urn:uuid:511ececc-3299-4eff-a501-c02fcc84bc7a</Id>
+  <ContentTitleText>CTP NonStd Res</ContentTitleText>
+  <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <ContentKind>test</ContentKind>
+  <ReelList>
+    <Reel>
+      <Id>urn:uuid:0fa160aa-8a87-477e-a110-2d473ff7c8c2</Id>
+      <AssetList>
+        <MainPicture>
+          <Id>urn:uuid:41f913ba-df6c-40d9-9d3c-de76ae70559c</Id>
+          <EditRate>24 1</EditRate>
+          <IntrinsicDuration>48</IntrinsicDuration>
+          <Duration>48</Duration>
+          <FrameRate>24 1</FrameRate>
+          <ScreenAspectRatio>2048 872</ScreenAspectRatio>
+        </MainPicture>
+        <MainSound>
+          <Id>urn:uuid:f9fd3619-3086-4f96-aef6-395500a584f1</Id>
+          <EditRate>24 1</EditRate>
+          <IntrinsicDuration>48</IntrinsicDuration>
+          <Duration>48</Duration>
+        </MainSound>
+      </AssetList>
+    </Reel>
+  </ReelList>
+</CompositionPlaylist>
