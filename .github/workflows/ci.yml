@@ -18,19 +18,38 @@ jobs:
           path: dcpdoctor
           submodules: recursive
 
+      - uses: actions/checkout@v4
+        with:
+          repository: PostPerfection/dcpwizard
+          path: dcpwizard
+          submodules: recursive
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev
+          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev ffmpeg
 
       - name: Build dcpdoctor
         working-directory: dcpdoctor/rust
         run: cargo build --release --locked
 
-      - name: Create fixtures
+      - name: Build dcpwizard
+        working-directory: dcpwizard/rust
+        run: cargo build --release --locked
+
+      - name: Create synthetic fixtures
         run: ./scripts/create_synthetic.sh
+
+      # generate.sh needs a source with video and audio so dcpwizard emits both MXFs
+      - name: Generate DCP fixtures
+        run: |
+          ffmpeg -y -f lavfi -i testsrc2=size=2048x1080:rate=24:duration=3 \
+                 -f lavfi -i sine=frequency=1000:sample_rate=48000:duration=3 \
+                 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest /tmp/ctp-source.mp4
+          DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
+          SOURCE_VIDEO=/tmp/ctp-source.mp4 ./scripts/generate.sh
 
       - name: Test synthetic packages
         run: |
@@ -39,3 +58,5 @@ jobs:
           ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category composition
           ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category picture
           ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category integrity
+          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category audio
+          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category security

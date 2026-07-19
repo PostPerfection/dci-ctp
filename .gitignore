@@ -1,4 +1,6 @@
-# Ignore large test content (download separately)
+# All fixtures are generated, never committed.
+# synthetic/ from create_synthetic.sh, generated/ from generate.sh, isdcf/ from download_isdcf.sh
 tests/isdcf/
 tests/generated/
+tests/synthetic/
 *.mxf

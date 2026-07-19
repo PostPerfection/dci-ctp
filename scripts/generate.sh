@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Generate test DCPs using dcpwizard
-# Requires: dcpwizard, ffmpeg, grk_compress
+# Requires: dcpwizard, ffmpeg
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
@@ -35,9 +35,9 @@ if [[ ! -f "$SHORT_VIDEO" ]]; then
 fi
 
 # Test 1: Standard 2K DCP
-echo "Generating: standard_2k_24fps..."
+echo "Generating: short_2k_24fps..."
 $DCPWIZARD create --title "CTP-Test-2K-24" --video "$SHORT_VIDEO" \
-    --output "$DEST/standard_2k_24fps" -v 2>&1 | tail -5 || true
+    --output "$DEST/short_2k_24fps" -v 2>&1 | tail -5
 
 echo ""
 echo "Done. Generated DCPs at: $DEST"

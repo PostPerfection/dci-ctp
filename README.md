@@ -11,15 +11,17 @@ Based on the [DCI Compliance Test Plan v1.5.0](https://documents.dcimovies.com/C
 ## Structure
 
 ```
-tests/
-├── isdcf/          # ISDCF SMPTE Bv2.1 test DCPs (5.1 + 7.1)
-├── synthetic/      # Hand-crafted DCPs for specific edge cases
-│   ├── valid/      # Should pass validation
-│   └── invalid/    # Should fail with specific errors
-└── generated/      # DCPs created by dcpwizard for testing
+tests/                    # all fixtures are generated, none are committed
+├── isdcf/                # ISDCF SMPTE Bv2.1 test DCPs (5.1 + 7.1)
+├── synthetic/            # minimal DCPs for specific edge cases
+│   ├── valid/            # should pass validation
+│   └── invalid/          # should fail with specific errors
+└── generated/            # DCPs created by dcpwizard
 scripts/
-├── run_tests.sh    # Run full test suite
-└── generate.sh     # Generate test DCPs from source material
+├── run_tests.sh          # run the suite, creates synthetic fixtures if missing
+├── create_synthetic.sh   # write the synthetic fixtures
+├── generate.sh           # generate DCPs from source material via dcpwizard
+└── download_isdcf.sh     # fetch the ISDCF reference content (~2GB)
 ```
 
 ## Test Categories (DCI CTP Sections)
@@ -52,9 +54,10 @@ scripts/
 ## Requirements
 
 - `dcpdoctor` binary (Rust release build)
+- `dcpwizard` binary and `ffmpeg`, for the generated fixtures
 - ISDCF test content (downloaded separately due to size)
 
-CI creates the synthetic fixtures and runs packaging, composition, picture, and integrity checks on every push and pull request.
+CI builds both binaries, creates the synthetic and generated fixtures, and runs packaging, composition, picture, integrity, audio, and security on every push and pull request. The isdcf category is not run in CI, the content is a 2GB download.
 
 ## Downloading ISDCF Test Content
 

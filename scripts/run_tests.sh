@@ -47,6 +47,14 @@ if [[ ! -x "$DCPDOCTOR" ]]; then
     exit 1
 fi
 
+# Synthetic fixtures are generated, not committed. bad_edit_rate is created last,
+# so its absence means no run or an interrupted one.
+if [[ ! -d "$REPO_DIR/tests/synthetic/invalid/bad_edit_rate" ]]; then
+    echo -e "${YELLOW}Synthetic fixtures missing, creating them...${NC}"
+    "$SCRIPT_DIR/create_synthetic.sh"
+    echo ""
+fi
+
 echo -e "${CYAN}DCI CTP Test Suite${NC}"
 echo -e "dcpdoctor: $DCPDOCTOR"
 echo -e "version: $($DCPDOCTOR --version 2>/dev/null || echo 'unknown')"
@@ -59,9 +67,16 @@ run_test() {
     local expect="$3"  # "pass", "fail", or specific error code
     local extra_flags="${4:-}"
 
+    # isdcf content is downloaded and generated/ needs dcpwizard, so both are optional.
+    # synthetic/ is created by this script, so a missing one means the generator broke.
     if [[ ! -d "$dcp_dir" ]]; then
-        echo -e "  ${YELLOW}SKIP${NC} $name (directory not found)"
-        SKIPPED=$((SKIPPED + 1))
+        if [[ "$dcp_dir" == *"/tests/synthetic/"* ]]; then
+            echo -e "  ${RED}FAIL${NC} $name (fixture missing: $dcp_dir)"
+            FAILED=$((FAILED + 1))
+        else
+            echo -e "  ${YELLOW}SKIP${NC} $name (content not present)"
+            SKIPPED=$((SKIPPED + 1))
+        fi
         return
     fi
 
