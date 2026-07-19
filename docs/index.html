@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DCI CTP Test Suite</title>
+  <meta name="description" content="Automated DCI Compliance Test Plan fixtures for dcpdoctor.">
+  <style>
+    body { max-width: 760px; margin: 4rem auto; padding: 0 1.5rem; font: 17px/1.6 system-ui, sans-serif; color: #e6edf3; background: #0d1117; }
+    h1, h2 { color: #fff; }
+    a { color: #58a6ff; }
+    code, pre { font-family: ui-monospace, monospace; }
+    pre { padding: 1rem; overflow: auto; background: #161b22; border: 1px solid #30363d; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>DCI CTP Test Suite</h1>
+  <p>Synthetic packaging, composition, picture, and integrity cases for dcpdoctor. CI creates the small MXF stubs before running all categories.</p>
+  <h2>Run it</h2>
+  <pre><code>./scripts/create_synthetic.sh
+./scripts/run_tests.sh \
+  --dcpdoctor ../dcpdoctor/rust/target/release/dcpdoctor</code></pre>
+  <p>Large ISDCF samples stay optional and outside Git.</p>
+  <p><a href="https://github.com/PostPerfection/dci-ctp">Source and test cases</a></p>
+</body>
+</html>

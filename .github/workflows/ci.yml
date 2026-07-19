@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  synthetic:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: PostPerfection/dcpdoctor
+          path: dcpdoctor
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev
+
+      - name: Build dcpdoctor
+        working-directory: dcpdoctor/rust
+        run: cargo build --release --locked
+
+      - name: Create fixtures
+        run: ./scripts/create_synthetic.sh
+
+      - name: Test synthetic packages
+        run: |
+          DCPDOCTOR="$PWD/dcpdoctor/rust/target/release/dcpdoctor"
+          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category packaging
+          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category composition
+          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category picture
+          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category integrity

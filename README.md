@@ -1,5 +1,9 @@
 # DCI CTP Test Suite
 
+[![CI](https://github.com/PostPerfection/dci-ctp/actions/workflows/ci.yml/badge.svg)](https://github.com/PostPerfection/dci-ctp/actions/workflows/ci.yml)
+
+[Documentation](https://postperfection.github.io/dci-ctp/)
+
 Compliance Test Plan (CTP) validation test suite for [dcpdoctor](https://github.com/PostPerfection/dcpdoctor).
 
 Based on the [DCI Compliance Test Plan v1.5.0](https://documents.dcimovies.com/CTP/release/1.5.0/) and the [ISDCF SMPTE-DCP test content](https://www.isdcf.com/smpte-dcp-tests/).
@@ -32,8 +36,11 @@ scripts/
 ## Quick Start
 
 ```bash
-# Run all tests
-./scripts/run_tests.sh
+# Create the small generated fixtures
+./scripts/create_synthetic.sh
+
+# Run all tests against a local dcpdoctor build
+./scripts/run_tests.sh --dcpdoctor ../dcpdoctor/rust/target/release/dcpdoctor
 
 # Run with verbose output
 ./scripts/run_tests.sh -v
@@ -46,6 +53,8 @@ scripts/
 
 - `dcpdoctor` binary (Rust release build)
 - ISDCF test content (downloaded separately due to size)
+
+CI creates the synthetic fixtures and runs packaging, composition, picture, and integrity checks on every push and pull request.
 
 ## Downloading ISDCF Test Content
 
