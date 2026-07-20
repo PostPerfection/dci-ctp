@@ -3,4 +3,12 @@
 tests/isdcf/
 tests/generated/
 tests/synthetic/
+# corpus/ is rebuilt by scripts/build_corpus.sh (real base DCP + per-code mutations + manifest)
+corpus/
 *.mxf
+
+# differential harness (diff/): venv and generated reports
+diff/.venv/
+diff/report.json
+diff/report.md
+__pycache__/

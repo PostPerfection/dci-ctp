@@ -1,0 +1,9 @@
+[project]
+name = "dcpdoctor-diff"
+version = "0.1.0"
+description = "Differential validation: dcpdoctor vs ClairMeta over the shared corpus"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "clairmeta>=1.6.2",
+]
