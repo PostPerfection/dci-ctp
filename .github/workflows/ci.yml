@@ -51,12 +51,8 @@ jobs:
           DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
           SOURCE_VIDEO=/tmp/ctp-source.mp4 ./scripts/generate.sh
 
-      - name: Test synthetic packages
+      # Runs every category. The isdcf cases skip since the 2GB content isn't downloaded.
+      - name: Test packages
         run: |
           DCPDOCTOR="$PWD/dcpdoctor/rust/target/release/dcpdoctor"
-          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category packaging
-          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category composition
-          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category picture
-          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category integrity
-          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category audio
-          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR" --category security
+          ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR"

@@ -24,16 +24,21 @@ scripts/
 └── download_isdcf.sh     # fetch the ISDCF reference content (~2GB)
 ```
 
-## Test Categories (DCI CTP Sections)
+## What the suite actually checks
 
-| Category | CTP Section | Tests |
-|----------|-------------|-------|
-| Packaging | §4 | VOLINDEX, ASSETMAP, PKL, MXF extensions |
-| Composition | §5 | CPL structure, UUID format, ContentKind, EditRate |
-| Picture | §6 | J2K profile, resolution, bitrate |
-| Audio | §7 | PCM format, sample rate, bit depth |
-| Security | §8 | Encryption, KDM references |
-| Presentation | §9 | Markers, duration |
+The suite drives `dcpdoctor validate`, so it covers exactly the rules that command enforces. Synthetic MXFs are zero-filled stubs, so picture/audio essence checks only run against the real generated and ISDCF DCPs.
+
+| Category | CTP Section | Covered here |
+|----------|-------------|--------------|
+| Packaging | §4 | Missing ASSETMAP, DCP with no CPL/PKL, valid SMPTE + Interop structure parse |
+| Composition | §5 | Malformed CPL XML, missing CPL, ContentKind (strict), EditRate (strict), broken CPL→ASSETMAP cross-reference |
+| Presentation | §9 | Missing required FFMC/LFMC markers (strict), marker with no Offset |
+| Integrity | — | PKL hash mismatch |
+| Picture | §6 | Valid 2K flat/scope DCPs parse and pass |
+| Audio | §7 | 48 kHz PCM in the real generated MXF (`--check-mxf`); ISDCF 5.1/7.1 when downloaded |
+| Security | §8 | Unencrypted DCP validates; encrypted content detected; encrypted-without-KDM flagged; encrypted ISDCF validates structurally |
+
+Not covered: J2K profile/bitrate, UUID-format, VOLINDEX/MXF-extension rules, and negative audio essence cases. Those either need a real fixture the suite can't cheaply generate (essence checks want a non-stub MXF) or the rule isn't wired into `dcpdoctor validate`.
 
 ## Quick Start
 
@@ -57,7 +62,7 @@ scripts/
 - `dcpwizard` binary and `ffmpeg`, for the generated fixtures
 - ISDCF test content (downloaded separately due to size)
 
-CI builds both binaries, creates the synthetic and generated fixtures, and runs packaging, composition, picture, integrity, audio, and security on every push and pull request. The isdcf category is not run in CI, the content is a 2GB download.
+CI builds both binaries, creates the synthetic and generated fixtures, and runs the full suite on every push and pull request. The isdcf cases skip in CI since the content is a 2GB download.
 
 ## Downloading ISDCF Test Content
 

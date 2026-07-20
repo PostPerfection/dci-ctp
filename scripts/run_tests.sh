@@ -31,6 +31,8 @@ usage() {
     echo "  -h, --help        Show this help"
 }
 
+CATEGORIES="packaging composition picture integrity audio security presentation isdcf generated"
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         -v|--verbose) VERBOSE="-v"; shift ;;
@@ -41,15 +43,21 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ -n "$CATEGORY" && " $CATEGORIES " != *" $CATEGORY "* ]]; then
+    echo -e "${RED}ERROR: unknown category '$CATEGORY'${NC}"
+    echo "Valid categories: $CATEGORIES"
+    exit 1
+fi
+
 if [[ ! -x "$DCPDOCTOR" ]]; then
     echo -e "${RED}ERROR: dcpdoctor not found at $DCPDOCTOR${NC}"
     echo "Set DCPDOCTOR env var or use --dcpdoctor PATH"
     exit 1
 fi
 
-# Synthetic fixtures are generated, not committed. bad_edit_rate is created last,
+# Synthetic fixtures are generated, not committed. encrypted_no_kdm is created last,
 # so its absence means no run or an interrupted one.
-if [[ ! -d "$REPO_DIR/tests/synthetic/invalid/bad_edit_rate" ]]; then
+if [[ ! -d "$REPO_DIR/tests/synthetic/invalid/encrypted_no_kdm" ]]; then
     echo -e "${YELLOW}Synthetic fixtures missing, creating them...${NC}"
     "$SCRIPT_DIR/create_synthetic.sh"
     echo ""
@@ -108,8 +116,9 @@ run_test() {
             fi
             ;;
         *)
-            # Expect specific error code
-            if echo "$output" | grep -q "$expect"; then
+            # Expect specific error code. Match the note's code field ("[SEVERITY] code - ..."),
+            # not the whole output, so an input path that echoes the code can't pass the test.
+            if echo "$output" | grep -qE "\] $expect - "; then
                 echo -e "  ${GREEN}PASS${NC} $name (found expected error: $expect)"
                 PASSED=$((PASSED + 1))
             else
@@ -164,6 +173,27 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "composition" ]]; then
     run_test "CTP-CPL: missing CPL" \
         "$REPO_DIR/tests/synthetic/invalid/missing_cpl" \
         "missing_cpl"
+
+    # CPL asset Id not present in the ASSETMAP
+    run_test "CTP-CPL: broken cross-reference detected" \
+        "$REPO_DIR/tests/synthetic/invalid/bad_cross_ref" \
+        "cross_ref_broken"
+    echo ""
+fi
+
+# ====== PRESENTATION TESTS (CTP Section 9) ======
+if [[ -z "$CATEGORY" || "$CATEGORY" == "presentation" ]]; then
+    echo -e "${CYAN}── Presentation Tests (CTP §9) ──${NC}"
+
+    # Required FFMC/LFMC markers absent (strict mode)
+    run_test "CTP-PRES: missing required marker detected" \
+        "$REPO_DIR/tests/synthetic/invalid/bad_markers" \
+        "marker_missing"
+
+    # Marker with a label but no Offset
+    run_test "CTP-PRES: malformed marker detected" \
+        "$REPO_DIR/tests/synthetic/invalid/bad_markers" \
+        "marker_invalid"
     echo ""
 fi
 
@@ -177,10 +207,6 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "picture" ]]; then
     
     run_test "CTP-PIC: valid 2K flat resolution" \
         "$REPO_DIR/tests/synthetic/valid/flat_2k" \
-        "pass"
-    
-    run_test "CTP-PIC: non-standard resolution warning" \
-        "$REPO_DIR/tests/synthetic/valid/nonstandard_resolution" \
         "pass"
     echo ""
 fi
@@ -226,7 +252,17 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "security" ]]; then
     run_test "CTP-SEC: unencrypted DCP validates" \
         "$REPO_DIR/tests/generated/short_2k_24fps" \
         "pass"
-    
+
+    # Encrypted CPL (KeyId present) is detected
+    run_test "CTP-SEC: encrypted content detected" \
+        "$REPO_DIR/tests/synthetic/invalid/encrypted_no_kdm" \
+        "encryption_detected"
+
+    # Encrypted content with no KDM in the package is flagged
+    run_test "CTP-SEC: missing KDM for encrypted content detected" \
+        "$REPO_DIR/tests/synthetic/invalid/encrypted_no_kdm" \
+        "kdm_required"
+
     # ISDCF content is encrypted — should still validate structure
     ISDCF_51="$REPO_DIR/tests/isdcf/SMPTE_TST-1-Bv21_51-71_20170110_SMPTE_Folders/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_51-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV"
     run_test "CTP-SEC: encrypted ISDCF DCP validates" \

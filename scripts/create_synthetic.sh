@@ -152,6 +152,24 @@ EOF
 EOF
 }
 
+# Recompute the CPL hash into PKL.xml after editing a CPL, so an intentional CPL
+# defect doesn't also trip pkl_hash_mismatch.
+reseal_cpl_hash() {
+    python3 - "$1" << 'PY'
+import sys, re, base64, hashlib
+d = sys.argv[1]
+cpl = open(f"{d}/CPL.xml", "rb").read()
+h = base64.b64encode(hashlib.sha1(cpl).digest()).decode()
+cid = re.search(rb"<Id>(urn:uuid:[^<]+)</Id>", cpl).group(1).decode()
+pkl = open(f"{d}/PKL.xml").read()
+# rewrite the Hash only in the Asset block that references the CPL
+pkl = re.sub(r"<Asset>.*?</Asset>",
+             lambda m: re.sub(r"<Hash>[^<]*</Hash>", f"<Hash>{h}</Hash>", m.group(0)) if cid in m.group(0) else m.group(0),
+             pkl, flags=re.S)
+open(f"{d}/PKL.xml", "w").write(pkl)
+PY
+}
+
 # ===== VALID TEST DCPs =====
 
 # Valid SMPTE 2K (Flat 1998x1080)
@@ -162,13 +180,9 @@ echo "  Created: valid/minimal_smpte"
 create_valid_smpte "$TESTS/valid/scope_2k" "CTP Scope 2K" "2048 858" "24 1" "test"
 echo "  Created: valid/scope_2k"
 
-# Valid Flat 2K (1998x1080)  
+# Valid Flat 2K (1998x1080)
 create_valid_smpte "$TESTS/valid/flat_2k" "CTP Flat 2K" "1998 1080" "24 1" "feature"
 echo "  Created: valid/flat_2k"
-
-# Valid non-standard resolution (should pass with warning)
-create_valid_smpte "$TESTS/valid/nonstandard_resolution" "CTP NonStd Res" "2048 872" "24 1" "test"
-echo "  Created: valid/nonstandard_resolution"
 
 # Valid Interop DCP
 mkdir -p "$TESTS/valid/minimal_interop"
@@ -424,6 +438,51 @@ echo "  Created: invalid/bad_content_kind"
 # Bad edit rate (13fps is not DCI-approved)
 create_valid_smpte "$TESTS/invalid/bad_edit_rate" "Bad Rate" "2048 1080" "13 1" "test"
 echo "  Created: invalid/bad_edit_rate"
+
+# Broken cross-reference: MainPicture references an Id not in the ASSETMAP
+create_valid_smpte "$TESTS/invalid/bad_cross_ref" "Bad CrossRef" "2048 1080" "24 1" "test"
+python3 - "$TESTS/invalid/bad_cross_ref/CPL.xml" << 'PY'
+import sys, re
+p = sys.argv[1]; s = open(p).read()
+s = re.sub(r"(<MainPicture>\s*<Id>)urn:uuid:[0-9a-fA-F-]+",
+           r"\1urn:uuid:deadbeef-0000-0000-0000-000000000000", s, count=1)
+open(p, "w").write(s)
+PY
+reseal_cpl_hash "$TESTS/invalid/bad_cross_ref"
+echo "  Created: invalid/bad_cross_ref"
+
+# Markers: a MainMarkers track present but missing required FFMC/LFMC, and a
+# marker with no Offset (marker_missing + marker_invalid, strict mode)
+create_valid_smpte "$TESTS/invalid/bad_markers" "Bad Markers" "2048 1080" "24 1" "test"
+python3 - "$TESTS/invalid/bad_markers/CPL.xml" << 'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+mm = """        <MainMarkers>
+          <Id>urn:uuid:00000000-0000-0000-0000-0000000000aa</Id>
+          <EditRate>24 1</EditRate>
+          <IntrinsicDuration>48</IntrinsicDuration>
+          <MarkerList>
+            <Marker><Label>FFOC</Label></Marker>
+          </MarkerList>
+        </MainMarkers>
+"""
+s = s.replace("        <MainSound>", mm + "        <MainSound>", 1)
+open(p, "w").write(s)
+PY
+reseal_cpl_hash "$TESTS/invalid/bad_markers"
+echo "  Created: invalid/bad_markers"
+
+# Encrypted content with no KDM in the package (encryption_detected + kdm_required)
+create_valid_smpte "$TESTS/invalid/encrypted_no_kdm" "Encrypted NoKDM" "2048 1080" "24 1" "test"
+python3 - "$TESTS/invalid/encrypted_no_kdm/CPL.xml" << 'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace("</MainPicture>",
+              "  <KeyId>urn:uuid:00000000-0000-0000-0000-0000000000bb</KeyId>\n        </MainPicture>", 1)
+open(p, "w").write(s)
+PY
+reseal_cpl_hash "$TESTS/invalid/encrypted_no_kdm"
+echo "  Created: invalid/encrypted_no_kdm"
 
 echo ""
 echo "Done. Synthetic test DCPs created at: $TESTS"
