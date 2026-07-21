@@ -29,7 +29,32 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev ffmpeg
+          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev ffmpeg cmake
+
+      # build grok (jpeg 2000 codec) from source once per tag, cached.
+      # provides libgrokj2k on the pkg-config + loader paths and grk_compress on PATH.
+      - name: Cache grok
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/grok-install
+          key: grok-${{ runner.os }}-v20.3.6
+
+      - name: Setup grok
+        env:
+          GROK_TAG: v20.3.6
+        run: |
+          prefix="$GITHUB_WORKSPACE/grok-install"
+          if [ ! -x "$prefix/bin/grk_compress" ]; then
+            git clone --depth 1 --recurse-submodules --shallow-submodules --branch "$GROK_TAG" \
+              https://github.com/GrokImageCompression/grok.git "$RUNNER_TEMP/grok-src"
+            cmake -S "$RUNNER_TEMP/grok-src" -B "$RUNNER_TEMP/grok-build" \
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix"
+            cmake --build "$RUNNER_TEMP/grok-build" --parallel
+            cmake --install "$RUNNER_TEMP/grok-build"
+          fi
+          echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig:$prefix/lib64/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$prefix/lib:$prefix/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
 
       - name: Build dcpdoctor
         working-directory: dcpdoctor/rust
@@ -93,6 +118,31 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev ffmpeg cmake
 
+      # build grok (jpeg 2000 codec) from source once per tag, cached.
+      # provides libgrokj2k on the pkg-config + loader paths and grk_compress on PATH.
+      - name: Cache grok
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/grok-install
+          key: grok-${{ runner.os }}-v20.3.6
+
+      - name: Setup grok
+        env:
+          GROK_TAG: v20.3.6
+        run: |
+          prefix="$GITHUB_WORKSPACE/grok-install"
+          if [ ! -x "$prefix/bin/grk_compress" ]; then
+            git clone --depth 1 --recurse-submodules --shallow-submodules --branch "$GROK_TAG" \
+              https://github.com/GrokImageCompression/grok.git "$RUNNER_TEMP/grok-src"
+            cmake -S "$RUNNER_TEMP/grok-src" -B "$RUNNER_TEMP/grok-build" \
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix"
+            cmake --build "$RUNNER_TEMP/grok-build" --parallel
+            cmake --install "$RUNNER_TEMP/grok-build"
+          fi
+          echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig:$prefix/lib64/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$prefix/lib:$prefix/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+
       - name: Build dcpwizard
         working-directory: dcpwizard/rust
         run: cargo build --release --locked
@@ -130,8 +180,33 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev ffmpeg
+          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev ffmpeg cmake
           curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      # build grok (jpeg 2000 codec) from source once per tag, cached.
+      # provides libgrokj2k on the pkg-config + loader paths and grk_compress on PATH.
+      - name: Cache grok
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/grok-install
+          key: grok-${{ runner.os }}-v20.3.6
+
+      - name: Setup grok
+        env:
+          GROK_TAG: v20.3.6
+        run: |
+          prefix="$GITHUB_WORKSPACE/grok-install"
+          if [ ! -x "$prefix/bin/grk_compress" ]; then
+            git clone --depth 1 --recurse-submodules --shallow-submodules --branch "$GROK_TAG" \
+              https://github.com/GrokImageCompression/grok.git "$RUNNER_TEMP/grok-src"
+            cmake -S "$RUNNER_TEMP/grok-src" -B "$RUNNER_TEMP/grok-build" \
+              -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix"
+            cmake --build "$RUNNER_TEMP/grok-build" --parallel
+            cmake --install "$RUNNER_TEMP/grok-build"
+          fi
+          echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig:$prefix/lib64/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$prefix/lib:$prefix/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
+          echo "$prefix/bin" >> "$GITHUB_PATH"
 
       - name: Build dcpdoctor
         working-directory: dcpdoctor/rust
