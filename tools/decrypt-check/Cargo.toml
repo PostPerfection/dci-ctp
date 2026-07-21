@@ -1,0 +1,13 @@
+[package]
+name = "decrypt-check"
+version = "0.1.0"
+edition = "2021"
+
+# same asdcplib-rs rev dcpwizard builds against, so we decrypt with the exact
+# essence library that wrote the mxf
+[dependencies]
+asdcplib = { git = "https://github.com/PostPerfection/asdcplib-rs.git", rev = "cb3f3de" }
+
+[[bin]]
+name = "decrypt-check"
+path = "src/main.rs"

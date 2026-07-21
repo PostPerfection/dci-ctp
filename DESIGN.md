@@ -6,6 +6,7 @@ DCI Compliance Test Plan (CTP) test suite for dcpdoctor. Shell scripts generate 
 
 - `scripts/create_synthetic.sh`: builds synthetic fixture DCPs (assetmap/PKL/CPL plus zero-filled MXF stubs).
 - `scripts/generate.sh`: builds a real DCP via dcpwizard (real picture/sound MXFs) for essence checks.
+- `scripts/verify_encryption.sh` + `recover_kdm_key.py` + `tools/decrypt-check/`: independent proof of the encryption + KDM chain (see below).
 - `scripts/run_tests.sh`: runs categories of expect-pass/expect-fail cases; for specific error codes it matches the note's code field, not the whole output.
 - CI runs the full suite in one invocation. The isdcf cases skip because their 2GB content isn't downloaded.
 
@@ -68,6 +69,40 @@ ClairMeta's own results, and give real coverage of `certificate_expired`
   bad wavelet/profile/component count), which dcpwizard won't emit.
 - `picture_invalid_frame_rate`: IMF-only (imf.rs); needs an IMP whose picture
   frame rate disagrees with the CPL edit rate.
+
+## Encryption + KDM verification (independent decrypt roundtrip)
+
+dcpwizard's own tests only prove postkit encrypt/decrypt with the same key. The
+real trust gap is whether the KDM delivers a key that actually decrypts the
+content. `scripts/verify_encryption.sh` closes it without projector hardware:
+
+1. openssl mints a signer + a recipient RSA-2048 cert; we hold the recipient
+   private key.
+2. `dcpwizard create --encrypt --key-out keys.json` builds a small encrypted DCP.
+   keys.json is the KeyBundle: `{cpl_id, keys:[{key_type Mdik/Mdak, key_id,
+   asset_uuid, content_key_hex}]}`, one AES-128 key per essence.
+3. `dcpwizard kdm --cert recipient.pem --keys keys.json` binds those keys.
+4. `recover_kdm_key.py` independently recovers each content key: base64 the
+   `EncryptedKey/CipherData/CipherValue`, RSA-OAEP unwrap with **openssl**
+   (SHA-1 digest + MGF1-SHA1, per `rsa-oaep-mgf1p`; a different implementation
+   than the `rsa` crate postkit wrapped with), then parse the 138-byte ST 430-1
+   key block: structure id `f1dc1244...` [0..16], signer thumbprint [16..36],
+   CPL id [36..52], key type [52..56], key id [56..72], not-before/after
+   [72..122], AES key [122..138]. Every recovered key must equal keys.json.
+5. `tools/decrypt-check/` (Rust, asdcplib-rs pinned to the same git rev dcpwizard
+   uses) decrypts the encrypted picture MXF with the recovered MDIK key. asdcplib
+   verifies the SMPTE 429-6 encrypted check value and per-frame HMAC, which only
+   validate under the exact content key, so a passing decrypt means the delivered
+   key is the encryption key and the plaintext is recovered by construction. The
+   helper also asserts a wrong key fails and a no-key read returns ciphertext, and
+   that the MXF's `cryptographic_key_id` matches the KDM/keys key id.
+6. Negative control: a KDM addressed to a different recipient must not unwrap with
+   our private key.
+
+Proves: KDM key delivery (ST 430-1 RSA-OAEP wrap) + essence decryption
+(SMPTE 429-6 AES-128-CBC) are cryptographically correct end to end. Out of scope:
+playback on real media-block/projector hardware, forensic marking. Runs as an
+optional non-blocking CI job (`encryption`) in a few seconds.
 
 ## Differential validation (dcpdoctor vs ClairMeta)
 

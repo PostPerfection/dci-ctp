@@ -21,7 +21,11 @@ scripts/
 ├── run_tests.sh          # run the suite, creates synthetic fixtures if missing
 ├── create_synthetic.sh   # write the synthetic fixtures
 ├── generate.sh           # generate DCPs from source material via dcpwizard
+├── verify_encryption.sh  # prove the encryption + KDM chain by independent decrypt
+├── recover_kdm_key.py    # RSA-unwrap the content key from a KDM (openssl)
 └── download_isdcf.sh     # fetch the ISDCF reference content (~2GB)
+tools/
+└── decrypt-check/        # tiny rust helper: decrypt an encrypted mxf with a key
 ```
 
 ## What the suite actually checks
@@ -107,6 +111,47 @@ defects, ClairMeta 21/32. Key findings:
 The differential runs as an optional, non-blocking CI job (uploads the report as
 an artifact); the ECL packages aren't fetched in CI, so it runs on the baselines
 and fixtures there.
+
+## Encryption + KDM verification
+
+`scripts/verify_encryption.sh` proves dcpwizard's encryption and KDM chain is
+cryptographically correct without any projector or media-block hardware, by an
+independent decrypt roundtrip. dcpwizard's own tests only prove encrypt/decrypt
+with the same key; this closes the real trust gap: does the KDM actually deliver
+a key that decrypts the content?
+
+```bash
+DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/verify_encryption.sh
+```
+
+Steps, each fail-loud:
+
+1. Generate a signer and a **recipient** RSA-2048 cert with openssl (we hold the
+   recipient private key, which is what makes independent recovery possible).
+2. `dcpwizard create --encrypt --key-out keys.json` builds a small encrypted DCP;
+   `keys.json` holds the plaintext AES-128 content keys (MDIK picture, MDAK sound).
+3. `dcpwizard kdm --cert recipient.pem --keys keys.json ...` binds those keys to
+   the recipient.
+4. `recover_kdm_key.py` decodes the KDM from scratch: base64 the `CipherValue`,
+   **RSA-OAEP (SHA-1 / MGF1-SHA1) unwrap with openssl** (a different implementation
+   than the `rsa` crate dcpwizard wrapped with), parse the 138-byte ST 430-1 key
+   block (structure id, CPL id, key type, key id, validity, AES key at bytes
+   122..138), and assert every recovered key equals `keys.json`.
+5. The `decrypt-check` helper (`tools/decrypt-check/`, asdcplib-rs, same rev
+   dcpwizard uses) decrypts the encrypted picture MXF with the recovered key: all
+   frames must decrypt (SMPTE 429-6 check value + HMAC only validate under the
+   correct key), a wrong key must fail, and a no-key read must return ciphertext.
+6. Negative control: a KDM addressed to a *different* recipient must not unwrap
+   with our private key.
+
+What this proves: KDM key delivery (ST 430-1 RSA-OAEP wrap) and essence decryption
+(SMPTE 429-6 AES-128-CBC) are cryptographically correct end to end. A key that
+passes the encrypted check value + HMAC is the exact encryption key, so the
+decrypted essence is the original plaintext by construction. Out of scope:
+playback on real media-block/projector hardware, and forensic marking.
+
+Runs as an optional, non-blocking CI job in ~a few seconds (needs openssl,
+ffmpeg, and a dcpwizard build).
 
 ## Quick Start
 

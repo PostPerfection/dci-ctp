@@ -70,6 +70,38 @@ jobs:
           DCPDOCTOR="$PWD/dcpdoctor/rust/target/release/dcpdoctor" \
           python3 ./scripts/run_corpus.py
 
+  # Optional crypto job: prove dcpwizard's encryption + KDM chain end to end.
+  # Encrypt a DCP, build a KDM for a recipient we control, independently
+  # RSA-unwrap the content key from the KDM (openssl) and decrypt the essence
+  # (asdcplib-rs). Independent of core CI; a break here fails only this job.
+  encryption:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: PostPerfection/dcpwizard
+          path: dcpwizard
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libxml2-dev libssl-dev libxerces-c-dev ffmpeg cmake
+
+      - name: Build dcpwizard
+        working-directory: dcpwizard/rust
+        run: cargo build --release --locked
+
+      - name: Verify encryption + KDM chain
+        run: |
+          DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
+          ./scripts/verify_encryption.sh
+
   # Optional differential job: diff dcpdoctor against ClairMeta over the corpus.
   # Informational, never blocks core CI (uploads report.json + report.md). The
   # ClairMeta ECL packages (~1.5GB) aren't fetched here, so only baselines +

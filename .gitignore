@@ -12,3 +12,6 @@ diff/.venv/
 diff/report.json
 diff/report.md
 __pycache__/
+
+# decrypt-check helper build output (tools/decrypt-check/)
+tools/decrypt-check/target/
