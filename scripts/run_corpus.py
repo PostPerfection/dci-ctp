@@ -31,34 +31,53 @@ ALL_CODES = [
     "missing_required_element", "pkl_hash_mismatch", "pkl_missing_asset_reference",
     "cpl_invalid_duration", "cpl_mismatched_durations", "cpl_missing_reel",
     "cpl_invalid_edit_rate", "cpl_invalid_content_kind", "mxf_unreadable",
-    "mxf_hash_mismatch", "mxf_invalid_structure", "signature_invalid",
-    "certificate_expired", "certificate_chain_broken", "smpte_naming_violation",
+    "mxf_hash_mismatch", "mxf_invalid_structure", "pkl_size_mismatch", "signature_invalid",
+    "certificate_expired", "certificate_chain_broken",
+    "certificate_basic_constraints_invalid", "certificate_key_usage_invalid",
+    "certificate_key_size_invalid", "certificate_signature_algorithm_invalid",
+    "certificate_role_invalid", "certificate_thumbprint_invalid",
+    "certificate_organization_inconsistent", "smpte_naming_violation",
     "smpte_namespace_wrong", "interop_namespace_wrong", "picture_invalid_resolution",
     "picture_invalid_frame_rate", "j2k_bitrate_exceeded", "j2k_invalid_profile",
     "j2k_invalid_component_count", "sound_invalid_sample_rate", "sound_invalid_channel_count",
-    "sound_clipping", "sound_silent", "subtitle_parse_error", "subtitle_invalid_timing",
+    "sound_invalid_quantization", "sound_invalid_block_align", "sound_clipping",
+    "sound_silent", "subtitle_parse_error", "subtitle_invalid_timing",
     "subtitle_font_missing", "isdcf_naming_violation", "encryption_detected",
     "kdm_required", "kdm_expired", "kdm_not_yet_valid", "reel_discontinuity",
-    "stereo_mismatch", "marker_missing", "marker_invalid", "cross_ref_broken",
-    "supplemental_opl_missing", "supplemental_ov_not_provided",
+    "reel_incoherent", "stereo_mismatch", "marker_missing", "marker_invalid",
+    "cross_ref_broken", "supplemental_opl_missing", "supplemental_ov_not_provided",
+    "aux_data_detected", "foreign_file_in_package", "empty_file_in_package",
 ]
 
-# codes not reachable through `dcpdoctor validate`, with why (honest gaps)
+# codes not covered by an isolated `dcpdoctor validate` fixture, with why (honest
+# gaps). The deep certificate-rule codes fire together on real malformed cert
+# chains (see the reference packages) but have no minimal single-code fixture.
 UNCOVERED_REASONS = {
-    "xml_schema_violation": "only via Photon (Java) / schema-validate subcommand, not validate",
-    "invalid_uuid": "emitted only in compliance.rs, which `validate` never calls",
-    "mxf_hash_mismatch": "only via --manifest compare / Photon; no plain-validate path",
-    "mxf_invalid_structure": "only mxf_advanced.rs / studio stereo / premium; not core validate",
-    "smpte_naming_violation": "only compliance.rs / advanced.rs (--bv21); needs a bv21 fixture",
-    "picture_invalid_resolution": "needs a real MXF at a non-DCI resolution (--check-mxf --strict)",
-    "picture_invalid_frame_rate": "IMF-only (imf.rs); needs an IMP with pic/edit-rate mismatch",
-    "j2k_invalid_profile": "needs --deep-j2k on essence with a non-DCI J2K profile",
-    "j2k_invalid_component_count": "needs --deep-j2k on essence with != 3 components",
-    "sound_invalid_sample_rate": "needs a real MXF at a non-48/96kHz rate (--check-mxf)",
+    "mxf_hash_mismatch": "covered via --manifest compare (manifest_size_mismatch); no plain-validate path",
+    "mxf_invalid_structure": "only mxf_advanced.rs / studio / premium; not core validate",
+    "interop_namespace_wrong": "needs an Interop DCP whose subtitle/doc uses a non-Interop "
+        "namespace; the SMPTE equivalent is covered by subtitle_wrong_namespace",
+    "picture_invalid_resolution": "ffprobe reads the J2K SIZ dims, not the MXF descriptor; "
+        "dcpwizard forces a DCI container and no non-DCI J2K wrapper is available",
+    "picture_invalid_frame_rate": "IMF-only (imf.rs); needs an imfwizard IMP with pic/edit-rate mismatch",
+    "j2k_invalid_profile": "needs --deep-j2k on a J2K codestream with a non-DCI profile; "
+        "dcpwizard emits DCI-conformant J2K and no re-wrap tool is available",
+    "j2k_invalid_component_count": "needs --deep-j2k on a J2K codestream with != 3 components (same reason)",
+    "sound_invalid_block_align": "unreachable via validate: ffprobe derives block_align "
+        "from channels x bit-depth, so it is always consistent and the inequality never holds "
+        "(covered by a mxf.rs unit test)",
     "sound_clipping": "audio.rs, only via auto-qc/loudness subcommands",
     "sound_silent": "audio.rs, only via auto-qc/loudness subcommands",
-    "kdm_expired": "kdm_advanced.rs, only via the kdm subcommand with a KDM file",
-    "kdm_not_yet_valid": "DEAD CODE: no emit site anywhere in dcpdoctor",
+    "kdm_expired": "kdm.rs, only via the `kdm` subcommand with a KDM file; run_corpus runs `validate` only",
+    "kdm_not_yet_valid": "kdm.rs, only via the `kdm` subcommand with a KDM file; run_corpus runs `validate` only",
+    "certificate_expired": "fires on real expired cert chains (reference packages); no minimal fixture",
+    "certificate_basic_constraints_invalid": "deep cert-rule check; fires on real malformed chains only",
+    "certificate_key_usage_invalid": "deep cert-rule check; fires on real malformed chains only",
+    "certificate_key_size_invalid": "deep cert-rule check; fires on real malformed chains only",
+    "certificate_signature_algorithm_invalid": "deep cert-rule check; fires on real malformed chains only",
+    "certificate_role_invalid": "deep cert-rule check; fires on real malformed chains only",
+    "certificate_thumbprint_invalid": "deep cert-rule check; fires on real malformed chains only",
+    "certificate_organization_inconsistent": "deep cert-rule check; fires on real malformed chains only",
 }
 
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"

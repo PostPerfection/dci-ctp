@@ -21,6 +21,9 @@ import sys
 
 CORPUS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "corpus"))
 BASE = os.path.join(CORPUS, "valid", "dcp_ov")
+MONO = os.path.join(CORPUS, ".mono_src")  # unlabeled-sound source (built by build_corpus.sh)
+THREE_D = os.path.join(CORPUS, "valid", "dcp_3d")
+ATMOS = os.path.join(CORPUS, "valid", "dcp_atmos")
 
 
 def sha1_b64(path):
@@ -38,20 +41,35 @@ def find(dirpath, pat):
     return hits[0]
 
 
-def clone(dest, copy_mxf=False):
-    """Copy a fixture from BASE. MXFs are hardlinked unless copy_mxf (so a
-    fixture that mutates essence gets its own writable copy)."""
+def clone(dest, copy_mxf=False, src=BASE):
+    """Copy a fixture from `src` (default BASE). MXFs are hardlinked unless
+    copy_mxf (so a fixture that mutates essence gets its own writable copy)."""
     if os.path.exists(dest):
         shutil.rmtree(dest)
     os.makedirs(dest)
-    for name in os.listdir(BASE):
-        src = os.path.join(BASE, name)
+    for name in os.listdir(src):
+        s = os.path.join(src, name)
         dst = os.path.join(dest, name)
         if name.endswith(".mxf") and not copy_mxf:
-            os.link(src, dst)
+            os.link(s, dst)
         else:
-            shutil.copy2(src, dst)
+            shutil.copy2(s, dst)
     return dest
+
+
+def sound_mxf(d):
+    return find(d, "sound_*.mxf")
+
+
+def patch_bytes(path, old_hex, new_hex, count=1):
+    """Byte-patch a copied essence file: replace old_hex with new_hex (equal
+    length). Fails loudly if the expected pattern is not present exactly once."""
+    old, new = bytes.fromhex(old_hex), bytes.fromhex(new_hex)
+    assert len(old) == len(new), "patch length mismatch"
+    data = open(path, "rb").read()
+    n = data.count(old)
+    assert n == count, f"expected {count} occurrence(s) of {old_hex} in {path}, found {n}"
+    open(path, "wb").write(data.replace(old, new, count))
 
 
 def cpl_path(d):
@@ -179,13 +197,13 @@ FIXTURES = []
 
 
 def fixture(name, codes, flags, notes, reseal_after=True, copy_mxf=False,
-            also=None, baseline="valid/dcp_ov", baseline_flags=None):
+            also=None, baseline="valid/dcp_ov", baseline_flags=None, src=BASE):
     def deco(fn):
         FIXTURES.append({
             "name": name, "codes": codes, "flags": flags, "notes": notes,
             "reseal": reseal_after, "copy_mxf": copy_mxf, "fn": fn,
             "also": also or [], "baseline": baseline,
-            "baseline_flags": baseline_flags,
+            "baseline_flags": baseline_flags, "src": src,
         })
         return fn
     return deco
@@ -249,6 +267,19 @@ def _(d):
     for i, b in enumerate(blocks):
         if "application/mxf" in b:
             blocks[i] = bad(re.match(r"[\s\S]*", b))
+            break
+    write(pkl_path(d), "".join(blocks))
+
+
+@fixture("pkl_size_mismatch", ["pkl_size_mismatch"], [],
+         "PKL Size for the picture MXF wrong (hash left correct, so only the "
+         "size check fires)", reseal_after=False)
+def _(d):
+    s = read(pkl_path(d))
+    blocks = re.split(r"(?<=</Asset>)", s)
+    for i, b in enumerate(blocks):
+        if "application/mxf" in b:
+            blocks[i] = re.sub(r"<Size>\d+</Size>", "<Size>12345</Size>", b, count=1)
             break
     write(pkl_path(d), "".join(blocks))
 
@@ -452,11 +483,80 @@ def _(d):
     write(p, s)
 
 
-@fixture("sound_no_mca", ["sound_invalid_channel_count"], [],
-         "Sound reel without MCA labeling (base state); baseline dcp_mca has labels",
-         baseline="valid/dcp_mca")
+@fixture("sound_no_mca", ["sound_invalid_channel_count"], ["--check-mxf"],
+         "Real mono DCP whose sound MXF carries no ST 429-12 MCA subdescriptors; "
+         "the 5.1 base (dcp_ov) is labeled so the INFO is absent there. dcpdoctor "
+         "reads the MXF subdescriptors, not the CPL, so this is non-vacuous.",
+         src=MONO, copy_mxf=True)
 def _(d):
-    pass  # base already lacks MCA labeling
+    pass  # the mono build already lacks MCA soundfield labels
+
+
+@fixture("foreign_file_in_package", ["foreign_file_in_package"], [],
+         "A file in the package directory that the ASSETMAP does not reference")
+def _(d):
+    write(os.path.join(d, "stray_notes.txt"), "not referenced by the ASSETMAP\n")
+
+
+@fixture("empty_file_in_package", ["empty_file_in_package"], [],
+         "A zero-byte file in the package directory")
+def _(d):
+    open(os.path.join(d, "empty.dat"), "wb").close()
+
+
+@fixture("invalid_uuid", ["invalid_uuid"], [],
+         "A urn:uuid: token in the CPL is malformed; compliance::check_uuids "
+         "(wired into validate) flags it", reseal_after=False)
+def _(d):
+    # corrupt the reel Id into a malformed urn:uuid the uuid check scans
+    p = cpl_path(d)
+    s = re.sub(r"(<Reel>\s*<Id>)urn:uuid:[0-9a-fA-F-]+",
+               r"\1urn:uuid:not-a-valid-uuid", read(p), count=1)
+    write(p, s)
+
+
+@fixture("xml_schema_violation", ["xml_schema_violation"], [],
+         "CPL carries an element not allowed by the 429-16 CPL schema; schema "
+         "validation is on by default (vendored schemas/), so no env var is needed",
+         reseal_after=False)
+def _(d):
+    p = cpl_path(d)
+    s = read(p).replace("</ContentTitleText>",
+                        "</ContentTitleText><BogusElement>x</BogusElement>", 1)
+    write(p, s)
+
+
+@fixture("sound_invalid_sample_rate", ["sound_invalid_sample_rate"], ["--check-mxf"],
+         "Sound MXF AudioSamplingRate KLV byte-patched 48000/1 -> 44100/1 so the "
+         "prober reports a non-DCI rate", copy_mxf=True)
+def _(d):
+    # rational 48000/1 = 0000BB80 00000001 -> 44100/1 = 0000AC44 00000001
+    patch_bytes(sound_mxf(d), "0000BB8000000001", "0000AC4400000001")
+
+
+@fixture("sound_invalid_quantization", ["sound_invalid_quantization"],
+         ["--check-mxf"],
+         "Sound MXF QuantizationBits (local tag 3d01) byte-patched 24 -> 16 bits",
+         copy_mxf=True, also=["sound_invalid_block_align"])
+def _(d):
+    # 3d01 len 0004 value 00000018 (24) -> 00000010 (16)
+    patch_bytes(sound_mxf(d), "3d010004" + "00000018", "3d010004" + "00000010")
+
+
+@fixture("stereo_framerate", ["stereo_mismatch"], ["--check-mxf"],
+         "Real 3D DCP whose MainStereoscopicPicture FrameRate is not twice the "
+         "EditRate (ST 429-10); part-1b relationship check", src=THREE_D)
+def _(d):
+    p = cpl_path(d)
+    write(p, read(p).replace("<FrameRate>48 1</FrameRate>",
+                             "<FrameRate>24 1</FrameRate>", 1))
+
+
+@fixture("aux_data_atmos", ["aux_data_detected"], ["--check-mxf"],
+         "Real Atmos DCP; the ST 429-18 AuxData track surfaces aux_data_detected "
+         "(absent on the non-Atmos base)", src=ATMOS, reseal_after=False)
+def _(d):
+    pass  # the atmos build already carries the AuxData track
 
 
 @fixture("subtitle_parse_error", ["subtitle_parse_error"], [],
@@ -524,15 +624,20 @@ def _(d):
     write(am_path(d), s)
 
 
-def build_mca_baseline():
-    """Valid variant of the base with MCA labeling on the sound reel, to prove
-    sound_invalid_channel_count is absent when labeling is present."""
-    d = clone(os.path.join(CORPUS, "valid", "dcp_mca"))
+def fixup_stereo_order(d):
+    """dcpwizard emits the 429-10 MainStereoscopicPicture before MainSound, but
+    the 429-16 CPL schema matches the stereo element via xs:any (which must follow
+    the known track elements), so real 3D CPLs put MainSound first. Reorder to the
+    schema-valid form and reseal. Hand-edit workaround for a dcpwizard quirk."""
     p = cpl_path(d)
-    s = read(p).replace("</MainSound>",
-                        "  <MCALabelDictionaryId>urn:smpte:ul:060e2b34.0401010d.03020201.00000000</MCALabelDictionaryId>\n"
-                        "        </MainSound>", 1)
-    write(p, s)
+    s = read(p)
+    stereo = re.search(
+        r"[ \t]*<[\w-]*:?MainStereoscopicPicture[\s\S]*?</[\w-]*:?MainStereoscopicPicture>\n", s
+    )
+    sound = re.search(r"[ \t]*<MainSound>[\s\S]*?</MainSound>\n", s)
+    if stereo and sound:
+        s = s.replace(stereo.group(0) + sound.group(0), sound.group(0) + stereo.group(0))
+        write(p, s)
     reseal(d)
 
 
@@ -541,18 +646,29 @@ def main():
         print(f"ERROR: base DCP missing at {BASE}; run build_corpus.sh first", file=sys.stderr)
         sys.exit(1)
 
-    build_mca_baseline()
+    # make the real 3D baseline schema-valid (dcpwizard element-order quirk)
+    if os.path.isdir(THREE_D):
+        fixup_stereo_order(THREE_D)
 
     manifest = {"baselines": [], "fixtures": []}
+    # real dcpwizard packages that must validate clean (0 errors). dcp_ov is the
+    # 5.1 labeled base; dcp_3d / dcp_atmos are the new 429-10 / 429-18 types.
     manifest["baselines"].append({
         "dir": "valid/dcp_ov", "package_type": "dcp", "is_valid_baseline": True,
         "flags": ["--strict", "--check-mxf"], "expected_codes": [],
-        "notes": "real DCP built by dcpwizard; validates clean",
+        "notes": "real 5.1 DCP built by dcpwizard (MCA labeled); validates clean",
     })
     manifest["baselines"].append({
-        "dir": "valid/dcp_mca", "package_type": "dcp", "is_valid_baseline": True,
+        "dir": "valid/dcp_3d", "package_type": "dcp", "is_valid_baseline": True,
         "flags": ["--strict", "--check-mxf"], "expected_codes": [],
-        "notes": "base with MCA channel labeling added",
+        "notes": "stereoscopic 3D (ST 429-10) DCP; FrameRate = 2x EditRate, "
+                 "Jpeg2000Stereo essence; validates clean",
+    })
+    manifest["baselines"].append({
+        "dir": "valid/dcp_atmos", "package_type": "dcp", "is_valid_baseline": True,
+        "flags": ["--strict", "--check-mxf"], "expected_codes": [],
+        "notes": "Atmos AuxData (ST 429-18) DCP; validates clean (aux_data_detected "
+                 "is INFO, not an error)",
     })
 
     inv = os.path.join(CORPUS, "invalid")
@@ -560,7 +676,7 @@ def main():
         shutil.rmtree(inv)
 
     for f in FIXTURES:
-        d = clone(os.path.join(inv, f["name"]), copy_mxf=f["copy_mxf"])
+        d = clone(os.path.join(inv, f["name"]), copy_mxf=f["copy_mxf"], src=f["src"])
         f["fn"](d)
         if f["reseal"]:
             reseal(d)
