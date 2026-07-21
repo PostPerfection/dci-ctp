@@ -174,10 +174,20 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "composition" ]]; then
         "$REPO_DIR/tests/synthetic/invalid/missing_cpl" \
         "missing_cpl"
 
-    # CPL asset Id not present in the ASSETMAP
+    # CPL asset Id absent from the ASSETMAP. Without --ov this is treated as a
+    # supplemental/VF package that references an external OV (warning). With --ov
+    # given and the id resolving in neither the package nor the OV, it is a real
+    # broken cross-reference. Point --ov at the fixture itself so the id resolves
+    # nowhere and cross_ref_broken fires.
     run_test "CTP-CPL: broken cross-reference detected" \
         "$REPO_DIR/tests/synthetic/invalid/bad_cross_ref" \
-        "cross_ref_broken"
+        "cross_ref_broken" \
+        "--ov $REPO_DIR/tests/synthetic/invalid/bad_cross_ref"
+
+    # Same fixture without --ov: assumed to be a VF referencing an external OV
+    run_test "CTP-CPL: missing OV for supplemental reference" \
+        "$REPO_DIR/tests/synthetic/invalid/bad_cross_ref" \
+        "supplemental_ov_not_provided"
     echo ""
 fi
 

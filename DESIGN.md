@@ -15,7 +15,7 @@ DCI Compliance Test Plan (CTP) test suite for dcpdoctor. Shell scripts generate 
 The suite only exercises rules that `dcpdoctor validate` enforces. Synthetic MXFs are zero-filled, so essence checks (J2K, sample rate) only run against the real generated and ISDCF DCPs.
 
 - Packaging (§4): missing ASSETMAP, DCP with no CPL/PKL, valid SMPTE + Interop parse.
-- Composition (§5): malformed CPL XML, missing CPL, ContentKind and EditRate under `--strict`, broken CPL→ASSETMAP cross-reference (`cross_ref_broken`).
+- Composition (§5): malformed CPL XML, missing CPL, ContentKind and EditRate under `--strict`, broken CPL→ASSETMAP cross-reference (`cross_ref_broken` with `--ov`, `supplemental_ov_not_provided` without).
 - Presentation (§9): missing required FFMC/LFMC markers under `--strict` (`marker_missing`), marker with no Offset (`marker_invalid`).
 - Integrity: PKL hash mismatch.
 - Picture (§6): valid 2K flat/scope DCPs parse and pass (no essence-level J2K checks on stubs).
@@ -134,10 +134,12 @@ reference digest and the RSA signature (`sha256(&c14n(..))`,
 `Pkcs1v15Sign::new::<sha2::Sha256>()`) and never reads the document's declared
 `DigestMethod`/`SignatureMethod`. The ECL CPLs/PKLs are signed with
 `xmldsig#sha1`, so the recomputed digest never matches. Fix: read the declared
-algorithm and dispatch SHA-1 vs SHA-256. Secondary stricter divergences: two VF
-packages emit `cross_ref_broken` on external OV references (ClairMeta downgrades to
-WARNING) and two Interop packages emit `missing_required_element` (SMPTE rules
-applied to Interop). `certificate_expired` (25 pkgs) is a defensible stricter
+algorithm and dispatch SHA-1 vs SHA-256. Secondary stricter divergence: two Interop
+packages emit `missing_required_element` (SMPTE rules applied to Interop). dcpdoctor
+now matches ClairMeta on external OV references: a VF package referencing an asset
+absent from the package emits a `supplemental_ov_not_provided` WARNING, and
+`cross_ref_broken` fires only when `--ov <dir>` is given and the id resolves in
+neither the package nor the OV. `certificate_expired` (25 pkgs) is a defensible stricter
 policy: ClairMeta downgrades expired certs to INFO.
 
 ### dcpdoctor coverage gaps ClairMeta exposed

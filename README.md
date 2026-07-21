@@ -35,7 +35,7 @@ The suite drives `dcpdoctor validate`, so it covers exactly the rules that comma
 | Category | CTP Section | Covered here |
 |----------|-------------|--------------|
 | Packaging | §4 | Missing ASSETMAP, DCP with no CPL/PKL, valid SMPTE + Interop structure parse |
-| Composition | §5 | Malformed CPL XML, missing CPL, ContentKind (strict), EditRate (strict), broken CPL→ASSETMAP cross-reference |
+| Composition | §5 | Malformed CPL XML, missing CPL, ContentKind (strict), EditRate (strict), broken CPL→ASSETMAP cross-reference (`--ov`) and external-OV supplemental reference |
 | Presentation | §9 | Missing required FFMC/LFMC markers (strict), marker with no Offset |
 | Integrity | — | PKL hash mismatch |
 | Picture | §6 | Valid 2K flat/scope DCPs parse and pass |

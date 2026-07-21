@@ -359,8 +359,10 @@ def _(d):
     write(p, s)
 
 
-@fixture("cross_ref_broken", ["cross_ref_broken"], [],
-         "MainPicture Id points at an asset absent from ASSETMAP/PKL")
+@fixture("cross_ref_broken", ["cross_ref_broken"], ["--ov", "@."],
+         "MainPicture Id points at an asset absent from ASSETMAP/PKL; --ov points "
+         "at the fixture itself so the id resolves in neither package nor OV and "
+         "cross_ref_broken fires (without --ov it downgrades to supplemental_ov_not_provided)")
 def _(d):
     p = cpl_path(d)
     s = re.sub(r"(<MainPicture>\s*<Id>)urn:uuid:[0-9a-fA-F-]+",
