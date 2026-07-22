@@ -40,9 +40,14 @@ EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <CompositionPlaylist xmlns="http://www.smpte-ra.org/schemas/429-7/2006/CPL">
   <Id>${cpl_uuid}</Id>
-  <ContentTitleText>${title}</ContentTitleText>
   <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <ContentTitleText>${title}</ContentTitleText>
   <ContentKind>${content_kind}</ContentKind>
+  <ContentVersion>
+    <Id>${cpl_uuid}-cv1</Id>
+    <LabelText>${title}</LabelText>
+  </ContentVersion>
+  <RatingList/>
   <ReelList>
     <Reel>
       <Id>${reel_uuid}</Id>
@@ -120,7 +125,9 @@ EOF
 <AssetMap xmlns="http://www.smpte-ra.org/schemas/429-9/2007/AM">
   <Id>${am_uuid}</Id>
   <Creator>dci-ctp test suite</Creator>
+  <VolumeCount>1</VolumeCount>
   <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <Issuer>dci-ctp</Issuer>
   <AssetList>
     <Asset>
       <Id>${pkl_uuid}</Id>
@@ -203,9 +210,12 @@ cat > "$TESTS/valid/minimal_interop/CPL.xml" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <CompositionPlaylist xmlns="http://www.digicine.com/PROTO-ASDCP-CPL-20040511#">
   <Id>${interop_cpl_uuid}</Id>
-  <ContentTitleText>CTP Interop Test</ContentTitleText>
   <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <Issuer>dci-ctp</Issuer>
+  <Creator>dci-ctp</Creator>
+  <ContentTitleText>CTP Interop Test</ContentTitleText>
   <ContentKind>test</ContentKind>
+  <RatingList/>
   <ReelList>
     <Reel>
       <Id>${interop_reel_uuid}</Id>
@@ -216,7 +226,7 @@ cat > "$TESTS/valid/minimal_interop/CPL.xml" << EOF
           <IntrinsicDuration>48</IntrinsicDuration>
           <Duration>48</Duration>
           <FrameRate>24 1</FrameRate>
-          <ScreenAspectRatio>2048 858</ScreenAspectRatio>
+          <ScreenAspectRatio>2.39</ScreenAspectRatio>
         </MainPicture>
       </AssetList>
     </Reel>
@@ -257,8 +267,10 @@ cat > "$TESTS/valid/minimal_interop/ASSETMAP" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <AssetMap xmlns="http://www.digicine.com/PROTO-ASDCP-AM-20040311#">
   <Id>${interop_am_uuid}</Id>
-  <Creator>dci-ctp</Creator>
+  <VolumeCount>1</VolumeCount>
   <IssueDate>2025-01-01T00:00:00+00:00</IssueDate>
+  <Issuer>dci-ctp</Issuer>
+  <Creator>dci-ctp</Creator>
   <AssetList>
     <Asset>
       <Id>${interop_pkl_uuid}</Id>
