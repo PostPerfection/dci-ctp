@@ -24,29 +24,37 @@ CLAIRMETA = os.environ.get(
     os.path.expanduser("~/src/PostPerfection/dci-ctp-work/ClairMeta_Data"),
 )
 
-# every dcpdoctor Code (dcpdoctor-core/src/lib.rs), for the coverage report
+# every dcpdoctor Code, in source order (dcpdoctor-core/src/lib.rs `Code::as_str`).
+# This is the coverage denominator, so it must stay complete: any code a fixture
+# or reference package emits has to appear here or the headline count and the
+# uncovered list stop adding up.
 ALL_CODES = [
     "missing_assetmap", "missing_pkl", "missing_cpl", "asset_not_found",
     "duplicate_asset_id", "xml_parse_error", "xml_schema_violation", "invalid_uuid",
-    "missing_required_element", "pkl_hash_mismatch", "pkl_missing_asset_reference",
-    "cpl_invalid_duration", "cpl_mismatched_durations", "cpl_missing_reel",
-    "cpl_invalid_edit_rate", "cpl_invalid_content_kind", "mxf_unreadable",
-    "mxf_hash_mismatch", "mxf_invalid_structure", "pkl_size_mismatch", "signature_invalid",
-    "certificate_expired", "certificate_chain_broken",
+    "missing_required_element", "pkl_hash_mismatch", "pkl_size_mismatch",
+    "pkl_missing_asset_reference", "cpl_invalid_duration", "cpl_mismatched_durations",
+    "cpl_missing_reel", "cpl_invalid_edit_rate", "cpl_invalid_content_kind",
+    "mxf_unreadable", "mxf_hash_mismatch", "mxf_invalid_structure", "signature_invalid",
+    "dcp_not_signed", "certificate_expired", "certificate_chain_broken",
     "certificate_basic_constraints_invalid", "certificate_key_usage_invalid",
     "certificate_key_size_invalid", "certificate_signature_algorithm_invalid",
     "certificate_role_invalid", "certificate_thumbprint_invalid",
     "certificate_organization_inconsistent", "smpte_naming_violation",
     "smpte_namespace_wrong", "interop_namespace_wrong", "picture_invalid_resolution",
     "picture_invalid_frame_rate", "j2k_bitrate_exceeded", "j2k_invalid_profile",
-    "j2k_invalid_component_count", "sound_invalid_sample_rate", "sound_invalid_channel_count",
+    "j2k_invalid_component_count", "j2k_legacy_ffff", "j2k_guard_bits",
+    "sound_invalid_sample_rate", "sound_invalid_channel_count",
     "sound_invalid_quantization", "sound_invalid_block_align", "sound_clipping",
-    "sound_silent", "subtitle_parse_error", "subtitle_invalid_timing",
-    "subtitle_font_missing", "isdcf_naming_violation", "encryption_detected",
-    "kdm_required", "kdm_expired", "kdm_not_yet_valid", "reel_discontinuity",
-    "reel_incoherent", "stereo_mismatch", "marker_missing", "marker_invalid",
-    "cross_ref_broken", "supplemental_opl_missing", "supplemental_ov_not_provided",
-    "aux_data_detected", "foreign_file_in_package", "empty_file_in_package",
+    "sound_silent", "main_sound_config_invalid", "sound_channel_config_invalid",
+    "subtitle_parse_error", "subtitle_invalid_timing", "subtitle_frame_rate_mismatch",
+    "subtitle_font_missing", "subtitle_glyph_missing", "subtitle_first_event_early",
+    "subtitle_line_count", "subtitle_line_length", "subtitle_duration", "subtitle_spacing",
+    "closed_caption_line_count", "closed_caption_line_length", "closed_caption_charset",
+    "isdcf_naming_violation", "encryption_detected", "kdm_required", "kdm_expired",
+    "kdm_not_yet_valid", "reel_discontinuity", "reel_incoherent", "reel_too_short",
+    "stereo_mismatch", "marker_missing", "marker_invalid", "cross_ref_broken",
+    "supplemental_opl_missing", "supplemental_ov_not_provided", "aux_data_detected",
+    "foreign_file_in_package", "empty_file_in_package", "non_ascii_filename",
 ]
 
 # codes not covered by an isolated `dcpdoctor validate` fixture, with why (honest
@@ -54,22 +62,9 @@ ALL_CODES = [
 # chains (see the reference packages) but have no minimal single-code fixture.
 UNCOVERED_REASONS = {
     "mxf_hash_mismatch": "covered via --manifest compare (manifest_size_mismatch); no plain-validate path",
-    "mxf_invalid_structure": "only mxf_advanced.rs / studio / premium; not core validate",
-    "interop_namespace_wrong": "needs an Interop DCP whose subtitle/doc uses a non-Interop "
-        "namespace; the SMPTE equivalent is covered by subtitle_wrong_namespace",
-    "picture_invalid_resolution": "ffprobe reads the J2K SIZ dims, not the MXF descriptor; "
-        "dcpwizard forces a DCI container and no non-DCI J2K wrapper is available",
-    "picture_invalid_frame_rate": "IMF-only (imf.rs); needs an imfwizard IMP with pic/edit-rate mismatch",
-    "j2k_invalid_profile": "needs --deep-j2k on a J2K codestream with a non-DCI profile; "
-        "dcpwizard emits DCI-conformant J2K and no re-wrap tool is available",
-    "j2k_invalid_component_count": "needs --deep-j2k on a J2K codestream with != 3 components (same reason)",
     "sound_invalid_block_align": "unreachable via validate: ffprobe derives block_align "
         "from channels x bit-depth, so it is always consistent and the inequality never holds "
         "(covered by a mxf.rs unit test)",
-    "sound_clipping": "audio.rs, only via auto-qc/loudness subcommands",
-    "sound_silent": "audio.rs, only via auto-qc/loudness subcommands",
-    "kdm_expired": "kdm.rs, only via the `kdm` subcommand with a KDM file; run_corpus runs `validate` only",
-    "kdm_not_yet_valid": "kdm.rs, only via the `kdm` subcommand with a KDM file; run_corpus runs `validate` only",
     "certificate_expired": "fires on real expired cert chains (reference packages); no minimal fixture",
     "certificate_basic_constraints_invalid": "deep cert-rule check; fires on real malformed chains only",
     "certificate_key_usage_invalid": "deep cert-rule check; fires on real malformed chains only",
@@ -78,6 +73,20 @@ UNCOVERED_REASONS = {
     "certificate_role_invalid": "deep cert-rule check; fires on real malformed chains only",
     "certificate_thumbprint_invalid": "deep cert-rule check; fires on real malformed chains only",
     "certificate_organization_inconsistent": "deep cert-rule check; fires on real malformed chains only",
+    # advisory quality checks (studio/deep/subtitle-render paths); real Code
+    # variants with unit-test coverage but no isolated corpus fixture yet
+    "j2k_legacy_ffff": "advisory: 0xFFFF legacy-marker check on the codestream; no isolated fixture yet",
+    "j2k_guard_bits": "advisory: RDD 52 per-frame guard-bit check (--deep-j2k); no isolated fixture yet",
+    "main_sound_config_invalid": "advisory sound-configuration check; no isolated fixture yet",
+    "subtitle_frame_rate_mismatch": "advisory subtitle timing check; no isolated fixture yet",
+    "subtitle_glyph_missing": "advisory glyph-coverage check (needs a font asset); no isolated fixture yet",
+    "subtitle_line_count": "advisory subtitle-layout check; no isolated fixture yet",
+    "subtitle_line_length": "advisory subtitle-layout check; no isolated fixture yet",
+    "closed_caption_line_count": "advisory closed-caption layout check; no isolated fixture yet",
+    "closed_caption_line_length": "advisory closed-caption layout check; no isolated fixture yet",
+    "closed_caption_charset": "advisory closed-caption charset check; no isolated fixture yet",
+    "reel_too_short": "advisory reel-length check; no isolated fixture yet",
+    "non_ascii_filename": "advisory package-hygiene check; no isolated fixture yet",
 }
 
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"
@@ -88,6 +97,15 @@ def run(dirpath, flags):
     # a flag of the form "@name" resolves to a file inside the fixture dir
     resolved = [os.path.join(full, f[1:]) if f.startswith("@") else f for f in flags]
     cmd = [DCPDOCTOR, "validate", "-v", *resolved, full]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    return p.stdout + p.stderr
+
+
+def run_sub(subcommand, dirpath, args):
+    # a flag of the form "@name" resolves to a file inside corpus/<dirpath>
+    full = os.path.join(CORPUS, dirpath)
+    resolved = [os.path.join(full, a[1:]) if a.startswith("@") else a for a in args]
+    cmd = [DCPDOCTOR, subcommand, "-v", *resolved]
     p = subprocess.run(cmd, capture_output=True, text=True)
     return p.stdout + p.stderr
 
@@ -143,6 +161,35 @@ def main():
                       f"{fx['baseline']} (vacuous)")
                 failed += 1
 
+    # Subcommand fixtures: codes reachable only through a non-validate subcommand
+    # (kdm, auto-qc). auto-qc prints findings as text, so a fixture may carry a
+    # `match` map (code -> substring) instead of the anchored code format.
+    subfx = manifest.get("subcommand_fixtures", [])
+    if subfx:
+        print(f"\n{CYAN}== subcommand fixtures (kdm / auto-qc) =={NC}")
+    for sf in subfx:
+        out = run_sub(sf["subcommand"], sf["dir"], sf["args"])
+        base_out = run_sub(sf["subcommand"], sf["dir"], sf["baseline_args"])
+        match = sf.get("match", {})
+
+        def hit(text, code):
+            return match[code] in text if code in match else code_fires(text, code)
+
+        for code in sf["expected_codes"]:
+            fires = hit(out, code)
+            absent = not hit(base_out, code)
+            if fires and absent:
+                print(f"  {GREEN}PASS{NC} {sf['name']} ({sf['subcommand']}): {code}")
+                passed += 1
+                covered.add(code)
+            elif not fires:
+                print(f"  {RED}FAIL{NC} {sf['name']} ({sf['subcommand']}): {code} did NOT fire")
+                failed += 1
+            else:
+                print(f"  {RED}FAIL{NC} {sf['name']} ({sf['subcommand']}): {code} also fires "
+                      f"on baseline (vacuous)")
+                failed += 1
+
     # Reference packages: real third-party DCPs, verified only if fetched.
     ref_covered = set()
     refs = manifest.get("reference_packages", {}).get("packages", [])
@@ -168,15 +215,18 @@ def main():
         print(f"\n{YELLOW}reference packages not fetched (set CLAIRMETA_DATA); "
               f"skipping{NC}")
 
-    all_covered = covered | ref_covered
+    all_set = set(ALL_CODES)
+    # count only codes that are in ALL_CODES, so the headline and the uncovered
+    # list share one denominator and always add up
+    all_covered = (covered | ref_covered) & all_set
     uncovered = [c for c in ALL_CODES if c not in all_covered]
 
     print(f"\n{CYAN}=============================={NC}")
     print(f"Results: {GREEN}{passed} passed{NC}, {RED}{failed} failed{NC}")
-    print(f"\nCoverage: {len(all_covered)}/{len(ALL_CODES)} codes exercised via "
-          f"`dcpdoctor validate`")
-    print(f"  isolated synthetic fixtures: {len(covered)}")
-    print(f"  additional via reference packages: {len(ref_covered - covered)}")
+    print(f"\nCoverage: {len(all_covered)}/{len(ALL_CODES)} codes exercised "
+          f"({len(all_covered)} + {len(uncovered)} uncovered = {len(ALL_CODES)})")
+    print(f"  isolated synthetic + subcommand fixtures: {len(covered & all_set)}")
+    print(f"  additional via reference packages: {len((ref_covered - covered) & all_set)}")
     if uncovered:
         print(f"\nUncovered ({len(uncovered)}):")
         for c in uncovered:

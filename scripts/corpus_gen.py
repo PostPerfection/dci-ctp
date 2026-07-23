@@ -24,6 +24,19 @@ BASE = os.path.join(CORPUS, "valid", "dcp_ov")
 MONO = os.path.join(CORPUS, ".mono_src")  # unlabeled-sound source (built by build_corpus.sh)
 THREE_D = os.path.join(CORPUS, "valid", "dcp_3d")
 ATMOS = os.path.join(CORPUS, "valid", "dcp_atmos")
+ENC_SRC = os.path.join(CORPUS, ".enc_src")  # encrypted (unsigned) DCP, built by build_corpus.sh
+IMF_SRC = os.path.join(CORPUS, "valid", "imf_ov")  # IMF IMP, built by build_corpus.sh
+NONDCI_MXF = os.path.join(CORPUS, ".nondci", "nondci_res.mxf")  # non-DCI J2K wrapped by asdcp-wrap
+
+# an enveloped ds:Signature is enough for check_dcp_signed (presence-only); its
+# value need not verify. dcpwizard emits unsigned encrypted packages, so the
+# signed baseline is synthesised by injecting this.
+FAKE_SIG = (
+    '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
+    '<ds:SignedInfo><ds:Reference URI="">'
+    "<ds:DigestValue>AAAA</ds:DigestValue></ds:Reference></ds:SignedInfo>"
+    "<ds:SignatureValue>AA==</ds:SignatureValue></ds:Signature>"
+)
 
 
 def sha1_b64(path):
@@ -70,6 +83,45 @@ def patch_bytes(path, old_hex, new_hex, count=1):
     n = data.count(old)
     assert n == count, f"expected {count} occurrence(s) of {old_hex} in {path}, found {n}"
     open(path, "wb").write(data.replace(old, new, count))
+
+
+def break_mxf_footer(path):
+    """Corrupt the SMPTE 377-1 footer partition pack key in an MXF's tail so
+    check_mxf_partitions reports a missing footer partition. The header partition
+    is left intact, so read_mxf_info still succeeds (no mxf_unreadable)."""
+    # 13-byte partition pack key prefix (mxf_advanced.rs PARTITION_PACK_KEY)
+    key = bytes.fromhex("060e2b34020501010d01020101")
+    data = bytearray(open(path, "rb").read())
+    scan_start = max(0, len(data) - 65536)  # dcpdoctor only scans the last 64 KiB
+    target = None
+    i = scan_start
+    while (j := data.find(key, i)) >= 0:
+        if data[j + 13] == 0x04:  # 0x04 = footer partition
+            target = j
+        i = j + 1
+    assert target is not None, f"no footer partition in tail of {path}"
+    data[target + 13] = 0x00
+    open(path, "wb").write(data)
+
+
+def replace_picture_mxf(d, src_mxf):
+    """Swap the picture MXF in a fixture for another (non-DCI) essence, keeping
+    the original filename so the ASSETMAP/PKL still resolve. reseal fixes hashes."""
+    shutil.copy(src_mxf, find(d, "picture_*.mxf"))
+
+
+def patch_j2k_component_count(mxf_path):
+    """Byte-patch the first frame's SIZ Csiz field 3 -> 4 so the codestream
+    declares 4 components. asdcp-wrap refuses to wrap a 4-component essence, so
+    the count is patched into a valid 3-component wrap instead."""
+    data = bytearray(open(mxf_path, "rb").read())
+    soc = data.find(bytes.fromhex("FF51"))  # SIZ marker
+    assert soc >= 0, f"no SIZ marker in {mxf_path}"
+    # SIZ layout: FF51 Lsiz(2) Rsiz(2) then 8x 4-byte size params, then Csiz(2)
+    csiz = soc + 2 + 2 + 2 + 4 * 8
+    assert data[csiz:csiz + 2] == b"\x00\x03", "first SIZ is not 3-component"
+    data[csiz:csiz + 2] = b"\x00\x04"
+    open(mxf_path, "wb").write(data)
 
 
 def cpl_path(d):
@@ -197,13 +249,15 @@ FIXTURES = []
 
 
 def fixture(name, codes, flags, notes, reseal_after=True, copy_mxf=False,
-            also=None, baseline="valid/dcp_ov", baseline_flags=None, src=BASE):
+            also=None, baseline="valid/dcp_ov", baseline_flags=None, src=BASE,
+            requires=None):
     def deco(fn):
         FIXTURES.append({
             "name": name, "codes": codes, "flags": flags, "notes": notes,
             "reseal": reseal_after, "copy_mxf": copy_mxf, "fn": fn,
             "also": also or [], "baseline": baseline,
             "baseline_flags": baseline_flags, "src": src,
+            "requires": requires or [],
         })
         return fn
     return deco
@@ -624,6 +678,78 @@ def _(d):
     write(am_path(d), s)
 
 
+@fixture("mxf_invalid_structure", ["mxf_invalid_structure"], ["--check-mxf"],
+         "Picture MXF footer partition pack key corrupted so the SMPTE 377-1 "
+         "footer is absent; validate --check-mxf flags the structure. The header "
+         "still parses, so read_mxf_info succeeds and no mxf_unreadable fires.",
+         copy_mxf=True)
+def _(d):
+    break_mxf_footer(find(d, "picture_*.mxf"))
+
+
+@fixture("interop_namespace_wrong", ["interop_namespace_wrong"], [],
+         "Interop-detected DCP (ASSETMAP has no .xml extension) whose subtitle "
+         "document uses the SMPTE DCST namespace; validate_subtitle runs with "
+         "Standard::Interop and flags the non-Interop namespace. The SMPTE "
+         "equivalent is subtitle_wrong_namespace.", reseal_after=False)
+def _(d):
+    add_subtitle(d, dcst(ns=True))  # SMPTE DCST ns, wrong for an Interop package
+    reseal(d)
+    os.rename(am_path(d), os.path.join(d, "ASSETMAP"))  # -> detected as Interop
+
+
+@fixture("dcp_not_signed", ["dcp_not_signed"], [],
+         "Real encrypted DCP built by dcpwizard: it carries KeyIds but no "
+         "CPL/PKL ds:Signature, so check_dcp_signed fires. The baseline is the "
+         "same package with synthetic signatures injected (encrypted + signed).",
+         src=ENC_SRC, reseal_after=False, also=["encryption_detected", "kdm_required"],
+         baseline="valid/dcp_encrypted_signed")
+def _(d):
+    pass  # dcpwizard's encrypted package is already unsigned
+
+
+@fixture("picture_invalid_resolution",
+         ["picture_invalid_resolution", "j2k_invalid_profile"],
+         ["--check-mxf", "--strict"],
+         "1920x1080 non-DCI J2K (grok, no cinema profile) wrapped by the vendored "
+         "asdcp-wrap and swapped in for the picture MXF; the MXF descriptor "
+         "resolution trips picture_invalid_resolution and the plain codestream "
+         "trips j2k_invalid_profile", copy_mxf=True, requires=[NONDCI_MXF])
+def _(d):
+    replace_picture_mxf(d, NONDCI_MXF)
+
+
+@fixture("j2k_invalid_component_count", ["j2k_invalid_component_count"],
+         ["--check-mxf", "--deep-j2k"],
+         "Picture MXF first-frame SIZ Csiz byte-patched 3 -> 4 so the codestream "
+         "declares 4 components (asdcp-wrap refuses a 4-component essence, so the "
+         "count is patched into a valid 3-component wrap)", copy_mxf=True)
+def _(d):
+    patch_j2k_component_count(find(d, "picture_*.mxf"))
+
+
+@fixture("picture_invalid_frame_rate", ["picture_invalid_frame_rate"], [],
+         "IMF IMP whose CPL EditRate (25 1) differs from the 24 fps picture "
+         "essence; the IMF validate path (imf.rs) flags the pic/edit-rate "
+         "mismatch", src=IMF_SRC, reseal_after=False, baseline="valid/imf_ov",
+         requires=[IMF_SRC])
+def _(d):
+    p = cpl_path(d)
+    write(p, read(p).replace("<EditRate>24 1</EditRate>", "<EditRate>25 1</EditRate>"))
+
+
+def build_encrypted_signed_baseline():
+    """The dcp_not_signed baseline: clone the encrypted source and inject an
+    enveloped ds:Signature into the CPL and PKL so the package reads as signed."""
+    dest = os.path.join(CORPUS, "valid", "dcp_encrypted_signed")
+    clone(dest, src=ENC_SRC)
+    cp = cpl_path(dest)
+    write(cp, read(cp).replace("</CompositionPlaylist>", FAKE_SIG + "</CompositionPlaylist>", 1))
+    pk = pkl_path(dest)
+    write(pk, read(pk).replace("</PackingList>", FAKE_SIG + "</PackingList>", 1))
+    reseal(dest)  # refresh the CPL hash the PKL carries
+
+
 def fixup_stereo_order(d):
     """dcpwizard emits the 429-10 MainStereoscopicPicture before MainSound, but
     the 429-16 CPL schema matches the stereo element via xs:any (which must follow
@@ -649,6 +775,10 @@ def main():
     # make the real 3D baseline schema-valid (dcpwizard element-order quirk)
     if os.path.isdir(THREE_D):
         fixup_stereo_order(THREE_D)
+
+    # the dcp_not_signed baseline (encrypted + synthetic signatures)
+    if os.path.isdir(ENC_SRC):
+        build_encrypted_signed_baseline()
 
     manifest = {"baselines": [], "fixtures": []}
     # real dcpwizard packages that must validate clean (0 errors). dcp_ov is the
@@ -676,6 +806,13 @@ def main():
         shutil.rmtree(inv)
 
     for f in FIXTURES:
+        if not os.path.isdir(f["src"]):
+            print(f"  SKIP invalid/{f['name']} (source {f['src']} not built)")
+            continue
+        missing = [r for r in f["requires"] if not os.path.exists(r)]
+        if missing:
+            print(f"  SKIP invalid/{f['name']} (missing {', '.join(missing)})")
+            continue
         d = clone(os.path.join(inv, f["name"]), copy_mxf=f["copy_mxf"], src=f["src"])
         f["fn"](d)
         if f["reseal"]:
@@ -693,10 +830,41 @@ def main():
         })
         print(f"  built invalid/{f['name']} -> {', '.join(f['codes'])}")
 
+    # fixtures reachable only through non-validate subcommands. Each runs
+    # `dcpdoctor <subcommand> [args]` where an @name arg resolves to a file in
+    # corpus/subcmd. auto-qc prints findings as text (not Codes), so those carry
+    # a `match` map from code -> substring; kdm emits real Code notes.
+    manifest["subcommand_fixtures"] = [
+        {"name": "kdm_expired", "subcommand": "kdm", "dir": "subcmd",
+         "args": ["@kdm_expired.xml"], "baseline_args": ["@kdm_valid.xml"],
+         "expected_codes": ["kdm_expired"],
+         "notes": "KDM ContentKeysNotValidAfter in the past"},
+        {"name": "kdm_not_yet_valid", "subcommand": "kdm", "dir": "subcmd",
+         "args": ["@kdm_future.xml"], "baseline_args": ["@kdm_valid.xml"],
+         "expected_codes": ["kdm_not_yet_valid"],
+         "notes": "KDM ContentKeysNotValidBefore in the future"},
+        {"name": "sound_clipping", "subcommand": "auto-qc", "dir": "subcmd",
+         "args": ["--audio", "@clip.wav"], "baseline_args": ["--audio", "@normal.wav"],
+         "expected_codes": ["sound_clipping"], "match": {"sound_clipping": "Audio clipping"},
+         "notes": "full-scale audio; auto-qc reports clipping as a finding string"},
+        {"name": "sound_silent", "subcommand": "auto-qc", "dir": "subcmd",
+         "args": ["--audio", "@silent.wav"], "baseline_args": ["--audio", "@normal.wav"],
+         "expected_codes": ["sound_silent"], "match": {"sound_silent": "Audio silence"},
+         "notes": "near-silent audio; auto-qc reports silence as a finding string"},
+    ]
+    # drop any subcommand fixture whose input files were not built
+    subcmd_dir = os.path.join(CORPUS, "subcmd")
+    manifest["subcommand_fixtures"] = [
+        sf for sf in manifest["subcommand_fixtures"]
+        if all(not a.startswith("@") or os.path.exists(os.path.join(subcmd_dir, a[1:]))
+               for a in sf["args"])
+    ]
+
     with open(os.path.join(CORPUS, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"\nmanifest: {os.path.join(CORPUS, 'manifest.json')}")
-    print(f"fixtures: {len(FIXTURES)}")
+    print(f"fixtures: {len(manifest['fixtures'])} + "
+          f"{len(manifest['subcommand_fixtures'])} subcommand")
 
 
 if __name__ == "__main__":

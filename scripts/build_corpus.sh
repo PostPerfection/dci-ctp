@@ -82,6 +82,107 @@ build "$CORPUS/.mono_src" \
     --title "CTPMono_TST_F_EN_US_10_2K_PPF_20260721_PPF_SMPTE_OV" \
     --content-type TST --video "$LEFT" --audio "$WAVMONO"
 
+# encrypted (unsigned) DCP: dcpwizard emits encrypted packages with a KeyId but
+# no CPL/PKL signature, so this is the real dcp_not_signed fixture source.
+CERTS="$SRCDIR/certs"
+ENCKEYS="$SRCDIR/enc_keys.json"
+if [[ ! -d "$CERTS" ]]; then
+    "$DCPWIZARD" certificate chain --organization CTP --output "$CERTS" >/dev/null 2>&1
+fi
+rm -f "$ENCKEYS"
+build "$CORPUS/.enc_src" \
+    --title "CTPEnc_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
+    --content-type TST --video "$LEFT" --audio "$WAV51" \
+    --encrypt --key-out "$ENCKEYS"
+
+# subcommand-only fixtures: KDMs with shifted validity windows (kdm subcommand)
+# and audio exhibiting clipping/silence (auto-qc). Windows use fixed dates so the
+# expired/future verdicts stay stable regardless of the current time.
+SUBCMD="$CORPUS/subcmd"
+rm -rf "$SUBCMD"; mkdir -p "$SUBCMD"
+ENC_CPLID=$(grep -oE 'urn:uuid:[0-9a-fA-F-]+' "$CORPUS/.enc_src"/CPL_*.xml | head -1)
+gen_kdm() {
+    "$DCPWIZARD" kdm --cpl-id "$ENC_CPLID" --content-title "CTPEnc" \
+        --cert "$CERTS/signer.pem" --signer-cert "$CERTS/signer.pem" \
+        --signer-key "$CERTS/signer.key" \
+        --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem" \
+        --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3" >/dev/null 2>&1
+}
+gen_kdm "2020-01-01T00:00:00+00:00" "2021-01-01T00:00:00+00:00" "$SUBCMD/kdm_expired.xml"
+gen_kdm "2090-01-01T00:00:00+00:00" "2091-01-01T00:00:00+00:00" "$SUBCMD/kdm_future.xml"
+gen_kdm "2024-01-01T00:00:00+00:00" "2090-01-01T00:00:00+00:00" "$SUBCMD/kdm_valid.xml"
+# full-scale (clipping), near-silent, and a clean -12 dBFS reference tone
+ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
+       -af "volume=40dB,alimiter=limit=1.0" -c:a pcm_s24le "$SUBCMD/clip.wav" 2>/dev/null
+ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
+       -af "volume=-90dB" -c:a pcm_s24le "$SUBCMD/silent.wav" 2>/dev/null
+ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
+       -af "volume=-12dB" -c:a pcm_s24le "$SUBCMD/normal.wav" 2>/dev/null
+echo "  built encrypted source, KDMs and audio fixtures"
+
+# non-DCI J2K essence + IMF IMP, for the picture/j2k codes. grok's grk_compress
+# and (for the wrap bypass) the vendored asdcplib asdcp-wrap are both needed.
+export PATH="$PATH:$HOME/bin/grok/bin"
+GRK="$(command -v grk_compress || true)"
+
+# build asdcp-wrap once, cached in the source dir (dcpwizard/postkit enforce DCI
+# on their wrap paths, so the raw C++ wrapper is the only way to get non-DCI
+# essence into an AS-DCP MXF)
+ASDCPLIB_SRC="$HOME/src/PostPerfection/dcpwizard/extern/asdcplib"
+ASDCP_BUILD="$SRCDIR/asdcplib-build"
+WRAP="$ASDCP_BUILD/src/asdcp-wrap"
+if [[ ! -x "$WRAP" && -d "$ASDCPLIB_SRC" ]]; then
+    echo "Building asdcp-wrap (cached in $ASDCP_BUILD)..."
+    mkdir -p "$ASDCP_BUILD"
+    (cd "$ASDCP_BUILD" && cmake "$ASDCPLIB_SRC" >/dev/null 2>&1 \
+        && make asdcp-wrap -j"$(nproc)" >/dev/null 2>&1) || echo "  asdcp-wrap build failed"
+fi
+export LD_LIBRARY_PATH="$ASDCP_BUILD/src:$LD_LIBRARY_PATH"
+
+# non-DCI resolution essence: 1920x1080 (not a DCP-DCI size), plain codestream
+# (grok without a cinema profile => Rsiz 0, single tile-part). Covers
+# picture_invalid_resolution and j2k_invalid_profile.
+NONDCI="$CORPUS/.nondci"
+rm -rf "$NONDCI"; mkdir -p "$NONDCI"
+if [[ -x "$WRAP" && -n "$GRK" ]]; then
+    NF="$SRCDIR/nondci_frames"; NJ="$SRCDIR/nondci_j2c"
+    if [[ ! -d "$NJ" ]]; then
+        rm -rf "$NF" "$NJ"; mkdir -p "$NF" "$NJ"
+        ffmpeg -y -f lavfi -i testsrc2=size=1920x1080:rate=24:duration=2 \
+               -pix_fmt rgb24 "$NF/f_%04d.png" 2>/dev/null
+        n=0; for f in "$NF"/*.png; do
+            printf -v out "$NJ/frame_%04d.j2c" "$n"
+            grk_compress -i "$f" -o "$out" >/dev/null 2>&1; n=$((n+1))
+        done
+    fi
+    "$WRAP" "$NJ" "$NONDCI/nondci_res.mxf" >/dev/null 2>&1 \
+        && echo "  wrapped non-DCI 1920x1080 essence" \
+        || echo "  asdcp-wrap of non-DCI essence failed"
+else
+    echo "  skipping non-DCI essence (asdcp-wrap or grk_compress unavailable)"
+fi
+
+# IMF IMP for picture_invalid_frame_rate: 8-bit frames -> grok J2K -> imfwizard
+# create. imfwizard enforces App-2E resolution at wrap time, so frame rate is the
+# only pic-vs-CPL mismatch we can inject (by editing the CPL edit rate).
+IW="${IMFWIZARD:-$HOME/src/PostPerfection/imfwizard/rust/target/release/imfwizard}"
+rm -rf "$VALID/imf_ov"
+if [[ -x "$IW" && -n "$GRK" ]]; then
+    IF="$SRCDIR/imf_frames"; IJ="$SRCDIR/imf_j2c"
+    if [[ ! -d "$IJ" ]]; then
+        rm -rf "$IF" "$IJ"; mkdir -p "$IF"
+        ffmpeg -y -f lavfi -i testsrc2=size=2048x1080:rate=24:duration=2 \
+               -pix_fmt rgb24 "$IF/f_%04d.png" 2>/dev/null
+        "$IW" encode -i "$IF" -o "$IJ" >/dev/null 2>&1
+    fi
+    "$IW" create --video "$IJ" --audio "$WAV51" \
+        --title "CTPImf_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
+        --output "$VALID/imf_ov" >/dev/null 2>&1 \
+        && echo "  built valid/imf_ov (IMP)" || echo "  imfwizard IMP build failed"
+else
+    echo "  skipping IMF IMP (imfwizard or grk_compress unavailable)"
+fi
+
 echo "Generating negative fixtures..."
 python3 "$SCRIPT_DIR/corpus_gen.py"
 
