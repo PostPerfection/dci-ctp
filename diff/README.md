@@ -21,8 +21,8 @@ Env:
 - ClairMeta 1.6.2 via uv. Its MXF-essence checks need `asdcp-info` (asdcplib); when
   that binary is absent they bypass, so this compares XML/structure/signature/cert
   checks only. Install asdcplib to also diff essence-level checks.
-- IMF-vs-Photon is not run: the corpus has no IMF packages, so Photon has nothing to
-  validate here.
+- Photon is never invoked: the one IMF IMP in the corpus lands as TOOL_ERROR under
+  ClairMeta, which is a DCP validator.
 - The negative fixtures all derive from one dcpwizard base that ClairMeta already
   rejects on schema grounds, so the harness attributes ClairMeta's catch of each
   injected defect by diffing the fixture's failed-check set against its baseline's,

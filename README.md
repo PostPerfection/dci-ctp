@@ -18,6 +18,10 @@ tests/                    # all fixtures are generated, none are committed
 │   └── invalid/          # should fail with specific errors
 └── generated/            # DCPs created by dcpwizard
 scripts/
+├── build_corpus.sh       # build the real baselines + per-code negative corpus
+├── corpus_gen.py         # clone+mutate the baselines into per-code fixtures
+├── run_corpus.py         # assert each code fires and is absent on its baseline
+├── scan_reference.py     # record ClairMeta ECL reference-package verdicts
 ├── run_tests.sh          # run the suite, creates synthetic fixtures if missing
 ├── create_synthetic.sh   # write the synthetic fixtures
 ├── generate.sh           # generate DCPs from source material via dcpwizard
@@ -46,25 +50,35 @@ Not covered by this table: J2K profile/bitrate, UUID-format, VOLINDEX/MXF-extens
 
 ## Per-error-code negative corpus
 
-`scripts/build_corpus.sh` builds one real base DCP with dcpwizard (real J2K + PCM
-MXFs), then clones and mutates it once per error code, resealing PKL hashes so
-only the intended code fires. `scripts/run_corpus.py` reads `corpus/manifest.json`
-and asserts each fixture's code fires AND is absent on the valid baseline (so a
-test can't pass when the check is unwired). This is the trust-critical proof that
-each check works and none is dead.
+`scripts/build_corpus.sh` builds the real DCPs dcpwizard produces (labeled 5.1
+base, stereoscopic 3D, Atmos AuxData, mono, and an encrypted unsigned build) plus
+non-DCI J2K essence and an IMF IMP, then `scripts/corpus_gen.py` clones and mutates
+them once per error code, resealing PKL hashes so only the intended code fires.
+`scripts/run_corpus.py` reads `corpus/manifest.json` and asserts each fixture's code
+fires AND is absent on the valid baseline (so a test can't pass when the check is
+unwired). This is the trust-critical proof that each check works and none is dead.
 
 ```bash
 DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage: 37 of 49 dcpdoctor codes are exercised through `dcpdoctor validate`
-(34 by isolated synthetic fixtures, 3 more by ClairMeta reference packages).
-`run_corpus.py` prints the full per-code list and the reason each of the
-remaining 12 is uncovered. `kdm_not_yet_valid` is dead code (no emit site in
-dcpdoctor). The rest need real essence with a specific defect (J2K profile,
-non-DCI resolution/sample rate) or live only behind non-validate subcommands
-(compliance, kdm, auto-qc).
+Coverage: 61 of 80 dcpdoctor codes are exercised (53 by isolated synthetic +
+subcommand fixtures, 8 more by the ClairMeta reference packages). `ALL_CODES` in
+`run_corpus.py` is the full `Code::as_str` enum, so the headline count and the
+uncovered list share one denominator (61 + 19 = 80). Most fixtures run through
+`dcpdoctor validate`; four codes reachable only through other subcommands (kdm,
+auto-qc) use a `subcommand_fixtures` manifest section. `run_corpus.py` prints the
+full per-code list and why each of the remaining 19 is uncovered: 6 deep
+certificate-rule codes (fire together on real malformed chains, no minimal single
+fixture), `sound_invalid_block_align` (unreachable via validate), and 12 advisory
+quality checks with no isolated fixture yet.
+
+The picture/J2K and IMF fixtures need grok's `grk_compress` on PATH and a vendored
+`asdcp-wrap`, which `build_corpus.sh` builds once from `dcpwizard/extern/asdcplib`
+and caches. dcpwizard/postkit enforce DCI on their own wrap paths, so `asdcp-wrap`
+is the only way to get non-DCI essence into an AS-DCP MXF. If either tool is absent
+those fixtures are skipped (recorded in the run output), not failed.
 
 ### ClairMeta reference packages
 
@@ -91,22 +105,24 @@ uv run --project diff diff/differential.py
 ```
 
 ClairMeta's MXF-essence checks need `asdcp-info` (asdcplib); absent it they bypass,
-so this diffs XML/structure/signature/cert checks. IMF-vs-Photon is not run: the
-corpus has no IMF packages.
+so this diffs XML/structure/signature/cert checks. Photon is never invoked: the one
+IMF IMP in the corpus lands as TOOL_ERROR under ClairMeta, which is a DCP validator.
 
-Full-corpus result (62 packages): BOTH_FAIL 21, DCPDOCTOR_ONLY_FAIL 25,
-CLAIRMETA_ONLY_FAIL 14, TOOL_ERROR 2. dcpdoctor caught 32/32 injected fixture
-defects, ClairMeta 21/32. Key findings:
+Full-corpus result (78 packages): BOTH_PASS 35, BOTH_FAIL 29, DCPDOCTOR_ONLY_FAIL 8,
+CLAIRMETA_ONLY_FAIL 3, TOOL_ERROR 3. dcpdoctor caught 47/47 injected fixture defects,
+ClairMeta 31/47. Key findings:
 
-- **dcpdoctor bug**: all 25 DCPDOCTOR_ONLY_FAIL are ClairMeta-clean ECL DCPs that
-  dcpdoctor rejects with a false `signature_invalid`. `postkit::xmldsig` hardcodes
-  SHA-256 and ignores the declared `DigestMethod`; the ECL DCPs are `xmldsig#sha1`.
-- **dcpdoctor gaps**: no XSD schema validation (both dcpwizard baselines are
-  schema-invalid and pass dcpdoctor but fail ClairMeta), and no deep
-  certificate-rule / sound-descriptor / CPL-label-schema checks.
-- **dcpdoctor ahead**: ClairMeta misses 11/32 defects dcpdoctor catches (duplicate
-  asset id, missing CPL, ContentKind, FFMC/LFMC markers, OPL, MCA labeling,
-  cert-chain, manifest compare) and crashes on some malformed CPLs.
+- **DCPDOCTOR_ONLY_FAIL 8**: dcpdoctor is stricter and each is defensible
+  (duplicate_asset_id, missing_cpl, cpl_invalid_content_kind, empty_file_in_package,
+  sound_invalid_quantization, mxf_unreadable, mxf_hash_mismatch, j2k_invalid_component_count).
+- **CLAIRMETA_ONLY_FAIL 3**: dcpdoctor flags the same defect at WARNING deliberately
+  (reel_discontinuity, pkl_missing_asset_reference, bv21_pkl_no_xml_ext); no SMPTE
+  "shall" demands rejection for these.
+- **Escalated to ERROR 2026-07-23**: cpl_mismatched_durations, subtitle_font_missing,
+  and the subtitle namespace codes moved from WARNING to ERROR, each on cited SMPTE
+  "shall" text (see the dcpdoctor code comments).
+- **TOOL_ERROR 3**: ClairMeta crashes on cpl_missing_reel and ECL08, and errors on
+  the IMF IMP (an IMP is a Photon job, not a ClairMeta DCP).
 
 The differential runs as an optional, non-blocking CI job (uploads the report as
 an artifact); the ECL packages aren't fetched in CI, so it runs on the baselines
