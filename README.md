@@ -200,3 +200,7 @@ CI builds both binaries, creates the synthetic and generated fixtures, and runs 
 ```
 
 This downloads the SMPTE Bv2.1 test DCPs (~2GB) from ISDCF.
+
+## License
+
+AGPL-3.0-or-later. Copyright (C) 2026 Grok Image Compression Inc. See [LICENSE](LICENSE).
