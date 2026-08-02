@@ -52,23 +52,37 @@ env). These become the shared corpus for differential testing against
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 
-## Coverage: 37 of 49 codes via `dcpdoctor validate`
+## Coverage: 73 of 80 codes
 
-34 codes have isolated synthetic fixtures; 3 more (`certificate_expired`,
-`j2k_bitrate_exceeded`, `interop_namespace_wrong`) come from reference packages.
-`run_corpus.py` prints the live list. Uncovered (12) and why:
+65 codes have isolated synthetic or subcommand fixtures, and 8 more come from
+the ClairMeta reference packages. `run_corpus.py` prints the live list and a reason
+per gap. Uncovered (7): the six deep certificate-rule codes, which only fire
+together on real malformed chains, and `sound_invalid_block_align`, which
+`validate` cannot reach because ffprobe derives block_align from channels x
+bit-depth (covered by an mxf.rs unit test).
 
-- `kdm_not_yet_valid`: DEAD CODE, no emit site anywhere in dcpdoctor.
-- `invalid_uuid`, `xml_schema_violation`, `mxf_invalid_structure`,
-  `sound_clipping`, `sound_silent`, `kdm_expired`: emitted only by modules the
-  `validate` path never calls (compliance, schema_validate, mxf_advanced, audio,
-  kdm). Reachable only via other subcommands.
-- `picture_invalid_resolution`, `sound_invalid_sample_rate`,
-  `j2k_invalid_profile`, `j2k_invalid_component_count`: need a real MXF/J2K
-  codestream carrying the specific defect (non-DCI resolution, non-48/96 kHz,
-  bad wavelet/profile/component count), which dcpwizard won't emit.
-- `picture_invalid_frame_rate`: IMF-only (imf.rs); needs an IMP whose picture
-  frame rate disagrees with the CPL edit rate.
+Fixture machinery beyond the plain clone+mutate:
+
+- Timed text: `add_timed_text` attaches a MainSubtitle or ClosedCaption track to
+  the first reel and registers the document in the ASSETMAP. `dcst()` builds the
+  SMPTE DCST document with one `<Text>` element per displayed line, which is how
+  dcpdoctor counts lines. The caption limits (3 lines, 32 characters, ISDCF Doc 9
+  charset) are errors where the subtitle ones are warnings.
+- The caption track element uses the digicine CC-CPL namespace, which puts
+  `digicine.com` into a SMPTE CPL. dcpdoctor's schema picker keys Interop off
+  that substring, so the three caption fixtures also emit `xml_schema_violation`.
+  Any real Bv2.1 CCAP package hits the same thing.
+- Fonts: `make_font()` writes a minimal sfnt whose only table is a format-12
+  cmap, so any code point outside the listed set has no glyph. The
+  `subtitle_glyph_missing` fixture is an Interop DCSubtitle, because dcpdoctor
+  resolves a font by URI. The SMPTE ST 428-7 form (LoadFont carrying the asset
+  urn as element text) never resolves, since the ASSETMAP ids it is looked up in
+  are stored with the `urn:uuid:` prefix stripped.
+- J2K byte patches walk the codestream markers rather than searching for byte
+  patterns: `patch_j2k_guard_bits` zeroes the first frame's QCD guard-bit field
+  (RDD 52 requires 1 at 2K, checked by `--deep-j2k`), `patch_j2k_legacy_ffff`
+  writes 0xFF 0xFF into its entropy data at a byte position 254 mod 256 from the
+  codestream start, the Dolby Cat. 862 legacy-decoder condition.
 
 ## Encryption + KDM verification (independent decrypt roundtrip)
 

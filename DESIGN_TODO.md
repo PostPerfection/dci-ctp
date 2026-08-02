@@ -1,15 +1,15 @@
 # Planned
 
 The per-error-code corpus (`scripts/build_corpus.sh` + `run_corpus.py`) proves
-61 of 80 dcpdoctor codes fire non-vacuously (each code is asserted absent on the
-fixture's valid baseline): 53 via isolated synthetic + subcommand fixtures and 8
+73 of 80 dcpdoctor codes fire non-vacuously (each code is asserted absent on the
+fixture's valid baseline): 65 via isolated synthetic + subcommand fixtures and 8
 more via the ClairMeta ECL reference packages. `ALL_CODES` is the full
 `Code::as_str` enum, so the headline count and the uncovered list share one
-denominator (61 + 19 = 80). Most fixtures run through `dcpdoctor validate`; four
+denominator (73 + 7 = 80). Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
 manifest section (kdm and auto-qc). Baselines are real dcpwizard builds: labeled
 5.1 (`valid/dcp_ov`), stereoscopic 3D 429-10 (`valid/dcp_3d`), Atmos AuxData
-429-18 (`valid/dcp_atmos`), all clean under `--strict --check-mxf`. 85 harness
+429-18 (`valid/dcp_atmos`), all clean under `--strict --check-mxf`. 97 harness
 checks pass.
 
 ## Coverage added 2026-07-23
@@ -84,20 +84,28 @@ is a DCP validator and errors on the IMP, which is a Photon job).
 - ClairMeta was importable but without asdcp-info / asdcp-unwrap / sox, so its
   MXF-essence-level checks did not run; the XML/structure comparison is complete.
 
-## Remaining coverage gaps (19, from run_corpus.py UNCOVERED_REASONS)
+## Remaining coverage gaps (7, from run_corpus.py UNCOVERED_REASONS)
 
 - Deep certificate-rule codes (6): fire together on real malformed cert chains
   (the reference packages); no minimal single-code fixture.
 - `sound_invalid_block_align`: unreachable via validate (ffprobe derives
   block_align from channels x bit-depth, so it is always consistent); covered by
   an mxf.rs unit test.
-- Advisory quality checks (12): `j2k_legacy_ffff`, `j2k_guard_bits`,
-  `main_sound_config_invalid`, `subtitle_frame_rate_mismatch`,
-  `subtitle_glyph_missing`, `subtitle_line_count`, `subtitle_line_length`,
-  `closed_caption_line_count`, `closed_caption_line_length`,
-  `closed_caption_charset`, `reel_too_short`, `non_ascii_filename`. Real Code
-  variants (studio/deep/subtitle-render paths) with unit-test coverage but no
-  isolated corpus fixture yet.
+
+## dcpdoctor issues the advisory fixtures surfaced
+
+- The closed-caption checks only match a CPL track element whose local name is
+  exactly `ClosedCaption`. Real Bv2.1 packages spell it `MainClosedCaption` (the
+  name the vendored `PROTO-ASDCP-CC_CPL_20070926.xsd` declares), so the caption
+  limits never run on them.
+- `schema_file_for` decides Interop from a `digicine.com` substring anywhere in
+  the document. A SMPTE CPL that declares the digicine CC-CPL namespace for its
+  caption track is therefore validated against the Interop CPL schema and fails
+  at the root element.
+- Glyph coverage resolves a SMPTE `LoadFont` by looking its element text
+  (`urn:uuid:...`) up in a map keyed by ASSETMAP ids, which are stored with the
+  `urn:uuid:` prefix stripped, so it never matches. Only the Interop URI form
+  resolves today.
 
 ## Toolchain note
 

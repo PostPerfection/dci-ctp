@@ -73,20 +73,6 @@ UNCOVERED_REASONS = {
     "certificate_role_invalid": "deep cert-rule check; fires on real malformed chains only",
     "certificate_thumbprint_invalid": "deep cert-rule check; fires on real malformed chains only",
     "certificate_organization_inconsistent": "deep cert-rule check; fires on real malformed chains only",
-    # advisory quality checks (studio/deep/subtitle-render paths); real Code
-    # variants with unit-test coverage but no isolated corpus fixture yet
-    "j2k_legacy_ffff": "advisory: 0xFFFF legacy-marker check on the codestream; no isolated fixture yet",
-    "j2k_guard_bits": "advisory: RDD 52 per-frame guard-bit check (--deep-j2k); no isolated fixture yet",
-    "main_sound_config_invalid": "advisory sound-configuration check; no isolated fixture yet",
-    "subtitle_frame_rate_mismatch": "advisory subtitle timing check; no isolated fixture yet",
-    "subtitle_glyph_missing": "advisory glyph-coverage check (needs a font asset); no isolated fixture yet",
-    "subtitle_line_count": "advisory subtitle-layout check; no isolated fixture yet",
-    "subtitle_line_length": "advisory subtitle-layout check; no isolated fixture yet",
-    "closed_caption_line_count": "advisory closed-caption layout check; no isolated fixture yet",
-    "closed_caption_line_length": "advisory closed-caption layout check; no isolated fixture yet",
-    "closed_caption_charset": "advisory closed-caption charset check; no isolated fixture yet",
-    "reel_too_short": "advisory reel-length check; no isolated fixture yet",
-    "non_ascii_filename": "advisory package-hygiene check; no isolated fixture yet",
 }
 
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"

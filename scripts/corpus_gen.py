@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import sys
 
 CORPUS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "corpus"))
@@ -124,6 +125,69 @@ def patch_j2k_component_count(mxf_path):
     open(mxf_path, "wb").write(data)
 
 
+def first_codestream(mxf_path):
+    """(bytes, start, end) of the first J2K codestream in a picture MXF, located
+    by the SOC+SIZ marker pair and bounded by the next frame's."""
+    data = bytearray(open(mxf_path, "rb").read())
+    soc = data.find(b"\xff\x4f\xff\x51")
+    assert soc >= 0, f"no J2K codestream in {mxf_path}"
+    nxt = data.find(b"\xff\x4f\xff\x51", soc + 4)
+    return data, soc, nxt if nxt >= 0 else len(data)
+
+
+def main_header_marker(data, start, end, marker):
+    """Offset of a marker segment in a codestream's main header, walking the
+    segments from SOC and stopping at the first SOT/SOD."""
+    pos = start + 2
+    while pos + 4 <= end:
+        m = bytes(data[pos:pos + 2])
+        if m in (b"\xff\x90", b"\xff\x93"):
+            return None
+        if m == marker:
+            return pos
+        seg = int.from_bytes(data[pos + 2:pos + 4], "big")
+        if seg < 2:
+            return None
+        pos += 2 + seg
+    return None
+
+
+def patch_j2k_guard_bits(mxf_path):
+    """Zero the guard-bit field of the first frame's QCD marker. RDD 52 requires
+    1 guard bit at 2K, so 0 is a violation check_guard_bits_mxf reports."""
+    data, s, e = first_codestream(mxf_path)
+    qcd = main_header_marker(data, s, e, b"\xff\x5c")
+    assert qcd is not None, f"no QCD marker in the first frame of {mxf_path}"
+    sqcd = qcd + 4  # FF5C, Lqcd(2), then Sqcd
+    assert data[sqcd] >> 5 == 1, f"first frame does not declare 1 guard bit ({data[sqcd] >> 5})"
+    data[sqcd] &= 0x1F
+    open(mxf_path, "wb").write(data)
+
+
+def patch_j2k_legacy_ffff(mxf_path):
+    """Write 0xFF 0xFF into the first frame's entropy data at a byte position
+    that is 254 mod 256 from the codestream start, the SMPTE Cat. 862 legacy
+    decoder condition. Positions inside the first tile-part need no realignment,
+    so the patch site is picked just past its SOD."""
+    data, s, e = first_codestream(mxf_path)
+    # walk to the first SOT, then on to its SOD
+    pos = s + 2
+    while bytes(data[pos:pos + 2]) != b"\xff\x90":
+        pos += 2 + int.from_bytes(data[pos + 2:pos + 4], "big")
+        assert pos < e, f"no SOT in the first frame of {mxf_path}"
+    psot = int.from_bytes(data[pos + 6:pos + 10], "big")
+    limit = s + psot if psot else e
+    while bytes(data[pos:pos + 2]) != b"\xff\x93":
+        pos += 2 + int.from_bytes(data[pos + 2:pos + 4], "big")
+        assert pos < e, f"no SOD in the first frame of {mxf_path}"
+    p = pos + 2 - s + 64  # 64 bytes into the entropy data
+    p += (254 - p) % 256
+    assert s + p + 2 < limit, f"no room in the first tile-part of {mxf_path}"
+    data[s + p] = 0xFF
+    data[s + p + 1] = 0xFF
+    open(mxf_path, "wb").write(data)
+
+
 def cpl_path(d):
     return find(d, "CPL_*.xml")
 
@@ -196,34 +260,66 @@ def pic_id(d):
 
 
 SUB_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444444"
+CCAP_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444455"
+FONT_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444466"
 DCST_NS = "http://www.smpte-ra.org/schemas/428-7/2010/DCST"
+# dcpdoctor's closed-caption path matches an element literally named
+# ClosedCaption (optionally prefixed), so the track element uses the digicine
+# CC-CPL namespace with that local name. The 429-7 AssetList ends in
+# xs:any namespace="##other" processContents="lax", so a foreign-namespace
+# element with no declaration is schema-clean there.
+CC_NS = "http://www.digicine.com/PROTO-ASDCP-CC-CPL-20070926#"
+# declaring that namespace puts "digicine.com" in a SMPTE CPL, and dcpdoctor's
+# schema picker keys Interop off that substring, so it validates the CPL against
+# the Interop CPL schema and the root element fails to match. Any real Bv2.1
+# CCAP package hits the same thing.
+CCAP_ALSO = ["xml_schema_violation"]
 
 
-def add_subtitle(d, sub_xml):
-    """Attach a MainSubtitle track (referencing sub.xml) to the first reel so
-    dcpdoctor's subtitle validator runs on the given subtitle document."""
-    write(os.path.join(d, "sub.xml"), sub_xml)
+def add_timed_text(d, xml, *, element="MainSubtitle", asset_id=SUB_ID,
+                   filename="sub.xml", ns_decl=""):
+    """Attach a timed-text track (referencing `filename`) to the first reel and
+    register the file in the ASSETMAP, so dcpdoctor's subtitle/closed-caption
+    checks run on the given document."""
+    write(os.path.join(d, filename), xml)
     p = cpl_path(d)
-    block = ("        <MainSubtitle>\n"
-             f"          <Id>{SUB_ID}</Id>\n"
+    block = (f"        <{element}{ns_decl}>\n"
+             f"          <Id>{asset_id}</Id>\n"
              "          <EditRate>24 1</EditRate>\n"
              "          <IntrinsicDuration>48</IntrinsicDuration>\n"
              "          <Duration>48</Duration>\n"
-             "        </MainSubtitle>\n")
+             f"        </{element}>\n")
     s = read(p).replace("        </MainSound>", "        </MainSound>\n" + block, 1)
     write(p, s)
+    add_assetmap_entry(d, asset_id, filename)
+
+
+def add_assetmap_entry(d, asset_id, filename):
     am = read(am_path(d))
     asset = ("    <Asset>\n"
-             f"      <Id>{SUB_ID}</Id>\n"
-             "      <ChunkList><Chunk><Path>sub.xml</Path></Chunk></ChunkList>\n"
+             f"      <Id>{asset_id}</Id>\n"
+             f"      <ChunkList><Chunk><Path>{filename}</Path></Chunk></ChunkList>\n"
              "    </Asset>\n")
-    am = am.replace("  </AssetList>", asset + "  </AssetList>", 1)
-    write(am_path(d), am)
+    write(am_path(d), am.replace("  </AssetList>", asset + "  </AssetList>", 1))
+
+
+def add_subtitle(d, sub_xml):
+    add_timed_text(d, sub_xml)
+
+
+def add_closed_caption(d, ccap_xml):
+    """Attach a ClosedCaption track so check_timed_text_content runs the
+    closed-caption limits (stricter than the subtitle ones) on the document."""
+    add_timed_text(d, ccap_xml, element="cc:ClosedCaption", asset_id=CCAP_ID,
+                   filename="ccap.xml", ns_decl=f' xmlns:cc="{CC_NS}"')
 
 
 def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=True,
-         time_in="00:00:01:00", time_out="00:00:02:00", broken=False):
-    """Build a SMPTE DCST subtitle document, omitting parts to trigger a code."""
+         time_in="00:00:01:00", time_out="00:00:02:00", broken=False,
+         lines=("hi",), time_code_rate=None):
+    """Build a SMPTE DCST timed-text document, omitting or overriding parts to
+    trigger a code. Each entry in `lines` becomes one <Text> element, which is
+    how dcpdoctor counts displayed lines."""
     xmlns = f' xmlns="{DCST_NS}"' if ns else ' xmlns="urn:example:not-dcst"'
     parts = [f'<?xml version="1.0" encoding="UTF-8"?>\n<SubtitleReel{xmlns}>']
     if sub_id:
@@ -232,15 +328,47 @@ def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=Tru
         parts.append("  <ReelNumber>1</ReelNumber>")
     if language:
         parts.append("  <Language>en</Language>")
+    if time_code_rate is not None:
+        parts.append(f"  <TimeCodeRate>{time_code_rate}</TimeCodeRate>")
     if load_font:
-        parts.append('  <LoadFont ID="Arial">urn:uuid:0</LoadFont>')
+        parts.append(f'  <LoadFont ID="Arial">{FONT_ID}</LoadFont>')
     parts.append("  <SubtitleList>")
     if broken:
         parts.append(f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}"><Text>hi</Broken')
         return "\n".join(parts)
-    parts.append(f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}"><Text>hi</Text></Subtitle>')
+    text = "".join(f"<Text>{l}</Text>" for l in lines)
+    parts.append(f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}">{text}</Subtitle>')
     parts.append("  </SubtitleList>\n</SubtitleReel>")
     return "\n".join(parts)
+
+
+def dcsubtitle(*, lines=("hi",), font_uri="font.ttf",
+               time_in="00:00:01:00", time_out="00:00:02:00"):
+    """Build an Interop DCSubtitle document. Interop references its font by URI
+    rather than by asset urn, which is how the glyph check resolves one."""
+    text = "".join(f"<Text>{l}</Text>" for l in lines)
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<DCSubtitle Version="1.0" xmlns="http://www.digicine.com/PROTO-ASDCP-TT-DEF" '
+            f'SubtitleID="{SUB_ID}">\n'
+            "  <ReelNumber>1</ReelNumber>\n"
+            "  <Language>en</Language>\n"
+            f'  <LoadFont Id="Arial" URI="{font_uri}"/>\n'
+            '  <Font Id="Arial">\n'
+            f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}">{text}</Subtitle>\n'
+            "  </Font>\n</DCSubtitle>\n")
+
+
+def make_font(chars):
+    """Minimal sfnt carrying nothing but a format-12 cmap that maps `chars` to
+    sequential glyph ids. Every other code point resolves to glyph 0, which is
+    what dcpdoctor's glyph-coverage check reports as missing."""
+    n = len(chars)
+    sub = struct.pack(">HHIII", 12, 0, 16 + 12 * n, 0, n)
+    for i, c in enumerate(chars):
+        sub += struct.pack(">III", ord(c), ord(c), i + 1)
+    cmap = struct.pack(">HHHHI", 0, 1, 3, 10, 12) + sub
+    header = struct.pack(">IHHHH", 0x00010000, 1, 16, 0, 0)
+    return header + b"cmap" + struct.pack(">III", 0, 28, len(cmap)) + cmap
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
@@ -736,6 +864,113 @@ def _(d):
 def _(d):
     p = cpl_path(d)
     write(p, read(p).replace("<EditRate>24 1</EditRate>", "<EditRate>25 1</EditRate>"))
+
+
+@fixture("non_ascii_filename", ["non_ascii_filename"], [],
+         "A file whose name carries non-ASCII characters, which "
+         "check_non_ascii_names "
+         "scans every name in the package directory. The file is unreferenced, so "
+         "the foreign-file note rides along.",
+         also=["foreign_file_in_package"])
+def _(d):
+    write(os.path.join(d, "café_notes.txt"), "non-ascii filename\n")
+
+
+@fixture("reel_too_short", ["reel_too_short"], [],
+         "Reel picture/sound Duration cut to 12 frames at 24 fps (0.5s), under the "
+         "ST 429-7 one-second minimum. Both tracks are cut together so the "
+         "durations stay coherent and only the length check fires.")
+def _(d):
+    p = cpl_path(d)
+    write(p, read(p).replace("<Duration>48</Duration>", "<Duration>12</Duration>"))
+
+
+@fixture("main_sound_config_invalid", ["main_sound_config_invalid"], [],
+         "CompositionMetadataAsset MainSoundConfiguration set to the literal "
+         "'None' easyDCP emits, which has no soundfield/channels form")
+def _(d):
+    p = cpl_path(d)
+    s = re.sub(r"(<meta:MainSoundConfiguration>)[^<]*(</meta:MainSoundConfiguration>)",
+               r"\1None\2", read(p))
+    write(p, s)
+
+
+@fixture("subtitle_frame_rate_mismatch", ["subtitle_frame_rate_mismatch"], [],
+         "Subtitle document declares TimeCodeRate 25 against the 24 fps "
+         "composition edit rate (ST 428-7 §5.9)")
+def _(d):
+    add_subtitle(d, dcst(time_code_rate=25))
+
+
+@fixture("subtitle_line_count", ["subtitle_line_count"], [],
+         "One subtitle cue carries four <Text> lines, one over the Bv2.1 §7.2.7 "
+         "limit of three")
+def _(d):
+    add_subtitle(d, dcst(lines=("one", "two", "three", "four")))
+
+
+@fixture("subtitle_line_length", ["subtitle_line_length"], [],
+         "One subtitle line is 85 characters, over the 79-character maximum")
+def _(d):
+    add_subtitle(d, dcst(lines=("x" * 85,)))
+
+
+@fixture("subtitle_glyph_missing", ["subtitle_glyph_missing"], [],
+         "Interop DCSubtitle whose LoadFont URI resolves to a minimal sfnt with a "
+         "cmap covering only the ASCII the cue uses, so the star has no glyph. "
+         "Interop is what makes this reachable: dcpdoctor resolves a font by URI, "
+         "and the SMPTE ST 428-7 form (LoadFont carrying the asset urn as element "
+         "text) never resolves, because the ASSETMAP ids it looks the urn up in "
+         "are stored with the urn:uuid: prefix stripped.",
+         reseal_after=False)
+def _(d):
+    with open(os.path.join(d, "font.ttf"), "wb") as f:
+        f.write(make_font(["H", "i", " "]))
+    add_assetmap_entry(d, FONT_ID, "font.ttf")
+    add_timed_text(d, dcsubtitle(lines=("Hi ★",)))
+    reseal(d)
+    os.rename(am_path(d), os.path.join(d, "ASSETMAP"))  # -> detected as Interop
+
+
+@fixture("closed_caption_line_count", ["closed_caption_line_count"], [],
+         "One closed-caption cue carries four <Text> lines, one over the "
+         "Bv2.1 §7.2.6 limit of "
+         "three (an error for captions, a warning for subtitles)",
+         also=CCAP_ALSO)
+def _(d):
+    add_closed_caption(d, dcst(lines=("one", "two", "three", "four")))
+
+
+@fixture("closed_caption_line_length", ["closed_caption_line_length"], [],
+         "One closed-caption line is 40 characters, over the 32-character limit",
+         also=CCAP_ALSO)
+def _(d):
+    add_closed_caption(d, dcst(lines=("a" * 40,)))
+
+
+@fixture("closed_caption_charset", ["closed_caption_charset"], [],
+         "Closed-caption text uses a character outside the ISDCF Doc 9 set "
+         "(ISO 8859-1 plus U+266A). The music note in the same line must not be "
+         "flagged", also=CCAP_ALSO)
+def _(d):
+    add_closed_caption(d, dcst(lines=("♪ music ★",)))
+
+
+@fixture("j2k_guard_bits", ["j2k_guard_bits"], ["--deep-j2k"],
+         "First frame's QCD guard-bit field zeroed. SMPTE RDD 52 requires 1 guard "
+         "bit at 2K, so run_deep_j2k's per-frame scan reports frame 0",
+         copy_mxf=True)
+def _(d):
+    patch_j2k_guard_bits(find(d, "picture_*.mxf"))
+
+
+@fixture("j2k_legacy_ffff", ["j2k_legacy_ffff"], ["--check-mxf"],
+         "0xFF 0xFF written into the first frame's entropy data at a byte position "
+         "254 mod 256 from the codestream start, the Dolby Cat. 862 legacy-decoder "
+         "condition (SMPTE Legacy Compatibility Note 1)",
+         copy_mxf=True)
+def _(d):
+    patch_j2k_legacy_ffff(find(d, "picture_*.mxf"))
 
 
 def build_encrypted_signed_baseline():
