@@ -68,16 +68,15 @@ Fixture machinery beyond the plain clone+mutate:
   SMPTE DCST document with one `<Text>` element per displayed line, which is how
   dcpdoctor counts lines. The caption limits (3 lines, 32 characters, ISDCF Doc 9
   charset) are errors where the subtitle ones are warnings.
-- The caption track element uses the digicine CC-CPL namespace, which puts
-  `digicine.com` into a SMPTE CPL. dcpdoctor's schema picker keys Interop off
-  that substring, so the three caption fixtures also emit `xml_schema_violation`.
-  Any real Bv2.1 CCAP package hits the same thing.
+- The caption track element carries the digicine CC-CPL namespace, as a real
+  Bv2.1 CCAP package does, so the three caption fixtures also prove that
+  declaring it does not push a SMPTE CPL onto the Interop schema (dcpdoctor picks
+  the standard from the root element's namespace, not a substring).
 - Fonts: `make_font()` writes a minimal sfnt whose only table is a format-12
   cmap, so any code point outside the listed set has no glyph. The
-  `subtitle_glyph_missing` fixture is an Interop DCSubtitle, because dcpdoctor
-  resolves a font by URI. The SMPTE ST 428-7 form (LoadFont carrying the asset
-  urn as element text) never resolves, since the ASSETMAP ids it is looked up in
-  are stored with the `urn:uuid:` prefix stripped.
+  `subtitle_glyph_missing` fixture is an Interop DCSubtitle, exercising the URI
+  form. The SMPTE ST 428-7 form (LoadFont carrying the font asset urn as element
+  text) resolves through the ASSETMAP.
 - J2K byte patches walk the codestream markers rather than searching for byte
   patterns: `patch_j2k_guard_bits` zeroes the first frame's QCD guard-bit field
   (RDD 52 requires 1 at 2K, checked by `--deep-j2k`), `patch_j2k_legacy_ffff`

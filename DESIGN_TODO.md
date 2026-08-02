@@ -92,21 +92,6 @@ is a DCP validator and errors on the IMP, which is a Photon job).
   block_align from channels x bit-depth, so it is always consistent); covered by
   an mxf.rs unit test.
 
-## dcpdoctor issues the advisory fixtures surfaced
-
-- The closed-caption checks only match a CPL track element whose local name is
-  exactly `ClosedCaption`. Real Bv2.1 packages spell it `MainClosedCaption` (the
-  name the vendored `PROTO-ASDCP-CC_CPL_20070926.xsd` declares), so the caption
-  limits never run on them.
-- `schema_file_for` decides Interop from a `digicine.com` substring anywhere in
-  the document. A SMPTE CPL that declares the digicine CC-CPL namespace for its
-  caption track is therefore validated against the Interop CPL schema and fails
-  at the root element.
-- Glyph coverage resolves a SMPTE `LoadFont` by looking its element text
-  (`urn:uuid:...`) up in a map keyed by ASSETMAP ids, which are stored with the
-  `urn:uuid:` prefix stripped, so it never matches. Only the Interop URI form
-  resolves today.
-
 ## Toolchain note
 
 The essence fixtures need `grk_compress` (grok, at `~/bin/grok/bin`) on PATH and

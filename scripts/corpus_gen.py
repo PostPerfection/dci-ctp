@@ -263,17 +263,12 @@ SUB_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444444"
 CCAP_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444455"
 FONT_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444466"
 DCST_NS = "http://www.smpte-ra.org/schemas/428-7/2010/DCST"
-# dcpdoctor's closed-caption path matches an element literally named
-# ClosedCaption (optionally prefixed), so the track element uses the digicine
-# CC-CPL namespace with that local name. The 429-7 AssetList ends in
-# xs:any namespace="##other" processContents="lax", so a foreign-namespace
-# element with no declaration is schema-clean there.
+# the caption track element carries the digicine CC-CPL namespace, as a real
+# Bv2.1 package does. The 429-7 AssetList ends in xs:any namespace="##other"
+# processContents="lax", so a foreign-namespace element is schema-clean there,
+# and dcpdoctor picks the schema from the root element namespace, so the CPL
+# still validates as SMPTE.
 CC_NS = "http://www.digicine.com/PROTO-ASDCP-CC-CPL-20070926#"
-# declaring that namespace puts "digicine.com" in a SMPTE CPL, and dcpdoctor's
-# schema picker keys Interop off that substring, so it validates the CPL against
-# the Interop CPL schema and the root element fails to match. Any real Bv2.1
-# CCAP package hits the same thing.
-CCAP_ALSO = ["xml_schema_violation"]
 
 
 def add_timed_text(d, xml, *, element="MainSubtitle", asset_id=SUB_ID,
@@ -918,10 +913,8 @@ def _(d):
 @fixture("subtitle_glyph_missing", ["subtitle_glyph_missing"], [],
          "Interop DCSubtitle whose LoadFont URI resolves to a minimal sfnt with a "
          "cmap covering only the ASCII the cue uses, so the star has no glyph. "
-         "Interop is what makes this reachable: dcpdoctor resolves a font by URI, "
-         "and the SMPTE ST 428-7 form (LoadFont carrying the asset urn as element "
-         "text) never resolves, because the ASSETMAP ids it looks the urn up in "
-         "are stored with the urn:uuid: prefix stripped.",
+         "This exercises the URI form. The SMPTE ST 428-7 form (LoadFont carrying "
+         "the font asset urn as element text) resolves through the ASSETMAP.",
          reseal_after=False)
 def _(d):
     with open(os.path.join(d, "font.ttf"), "wb") as f:
@@ -935,15 +928,13 @@ def _(d):
 @fixture("closed_caption_line_count", ["closed_caption_line_count"], [],
          "One closed-caption cue carries four <Text> lines, one over the "
          "Bv2.1 §7.2.6 limit of "
-         "three (an error for captions, a warning for subtitles)",
-         also=CCAP_ALSO)
+         "three (an error for captions, a warning for subtitles)")
 def _(d):
     add_closed_caption(d, dcst(lines=("one", "two", "three", "four")))
 
 
 @fixture("closed_caption_line_length", ["closed_caption_line_length"], [],
-         "One closed-caption line is 40 characters, over the 32-character limit",
-         also=CCAP_ALSO)
+         "One closed-caption line is 40 characters, over the 32-character limit")
 def _(d):
     add_closed_caption(d, dcst(lines=("a" * 40,)))
 
@@ -951,7 +942,7 @@ def _(d):
 @fixture("closed_caption_charset", ["closed_caption_charset"], [],
          "Closed-caption text uses a character outside the ISDCF Doc 9 set "
          "(ISO 8859-1 plus U+266A). The music note in the same line must not be "
-         "flagged", also=CCAP_ALSO)
+         "flagged")
 def _(d):
     add_closed_caption(d, dcst(lines=("♪ music ★",)))
 
@@ -1095,7 +1086,15 @@ def main():
                for a in sf["args"])
     ]
 
-    with open(os.path.join(CORPUS, "manifest.json"), "w") as f:
+    # keep the reference_packages section scan_reference.py appended, or a
+    # regen silently drops coverage from 73 to 65 until it is re-run
+    path = os.path.join(CORPUS, "manifest.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            old = json.load(f)
+        if "reference_packages" in old:
+            manifest["reference_packages"] = old["reference_packages"]
+    with open(path, "w") as f:
         json.dump(manifest, f, indent=2)
     print(f"\nmanifest: {os.path.join(CORPUS, 'manifest.json')}")
     print(f"fixtures: {len(manifest['fixtures'])} + "
