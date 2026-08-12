@@ -91,6 +91,14 @@ working when dcpdoctor began taking the standard from the asset map's namespace
 rather than its filename. It now builds on the real Interop package,
 `valid/dcp_dom_interop`.
 
+`MainMarkers` is injected ahead of `MainPicture` now, by one `add_markers`
+helper. Both fixtures that inject it put it before `MainSound`, where the 429-16
+schema rejects it, so each carried an `xml_schema_violation` nobody asked for.
+`run_corpus.py` could not see it: it checks that the expected codes fire, never
+that nothing else does. `markers_bad` still violates the schema, unavoidably,
+since a `Marker` without `Offset` is exactly what it exists to test, so that one
+is recorded in its `also_emits`.
+
 ## Coverage added 2026-08-12
 
 The six deep certificate-rule codes now have one isolated fixture each, built
@@ -152,20 +160,25 @@ baseline; it is recorded in each fixture's `also_emits`.
 
 ## Differential vs ClairMeta (diff/differential.py): current state
 
-Re-run 2026-08-12 over a fully regenerated corpus carrying the DCP-o-matic
-fixtures, with `asdcp-info`, `asdcp-unwrap` and `sox` on PATH so ClairMeta's
-MXF-essence checks run. Buckets over 155 packages (5 baselines, 122 fixtures, 28
-ECL references): BOTH_PASS 35, BOTH_FAIL 70, DCPDOCTOR_ONLY_FAIL 17,
-CLAIRMETA_ONLY_FAIL 28, TOOL_ERROR 5.
+Re-run 2026-08-12, second time that day, over a corpus regenerated against the
+dcpwizard that writes a CompositionMetadataAsset and carrying the five codes
+dcpdoctor added. `asdcp-info`, `asdcp-unwrap` and `sox` on PATH so ClairMeta's
+MXF-essence checks run. Buckets over 162 packages (5 baselines, 129 fixtures, 28
+ECL references): BOTH_PASS 36, BOTH_FAIL 79, DCPDOCTOR_ONLY_FAIL 18,
+CLAIRMETA_ONLY_FAIL 24, TOOL_ERROR 5.
 
-dcpdoctor catches 122 of 122 injected defects, ClairMeta 96.
+dcpdoctor catches 129 of 129 injected defects, ClairMeta 101.
 
-- `check_assets_am_size` is a new gap, and only the second vendor could show it.
-  ClairMeta checks each ASSETMAP chunk Length against the file on disk. DoM
-  writes that element and dcpwizard writes none, so no package here had ever
-  carried one and dcpdoctor has no equivalent check. It fires on 4 packages, all
-  fixtures that deliberately skip the reseal, so their stale Length is as
-  intended as their stale PKL hash.
+- `check_assets_am_size` was the one gap only the second vendor could show, and
+  dcpdoctor's `assetmap_size_mismatch` closes it. ClairMeta checks each ASSETMAP
+  chunk Length against the file on disk, DoM writes that element and dcpwizard
+  writes none. All 6 packages where ClairMeta reports it are now BOTH_FAIL, where
+  the 4 DoM ones used to be CLAIRMETA_ONLY_FAIL, which is the whole of that
+  bucket's drop from 28 to 24.
+- `reel_edit_rate_mismatch` is WARNING, so its fixture is BOTH_PASS on the
+  dcpwizard side: the differential splits on pass/fail and never sees a warning.
+  The DoM twin is CLAIRMETA_ONLY_FAIL, ClairMeta erroring where dcpdoctor
+  deliberately only warns.
 - `reseal` rewrites those Lengths now, not just the PKL Hash+Size. Without that
   every size-changing DoM fixture carried a second unintended defect, and
   `check_assets_am_size` fired on 29 packages rather than 4.

@@ -432,6 +432,31 @@ def add_subtitle(d, sub_xml):
     add_timed_text(d, sub_xml)
 
 
+MARKERS_ID = "urn:uuid:00000000-0000-0000-0000-0000000000aa"
+
+
+def add_markers(d, markers, *, edit_rate="24 1"):
+    """Attach a MainMarkers track to the first reel. It goes ahead of MainPicture,
+    which is the only place the 429-7 AssetList sequence accepts it and where
+    DCP-o-matic writes it. Each marker is (label, offset), offset None to leave
+    the Offset element out."""
+    entries = "".join(
+        f"            <Marker><Label>{label}</Label>"
+        f"{'' if offset is None else f'<Offset>{offset}</Offset>'}</Marker>\n"
+        for label, offset in markers)
+    block = ("        <MainMarkers>\n"
+             f"          <Id>{MARKERS_ID}</Id>\n"
+             f"          <EditRate>{edit_rate}</EditRate>\n"
+             "          <IntrinsicDuration>48</IntrinsicDuration>\n"
+             "          <MarkerList>\n"
+             f"{entries}"
+             "          </MarkerList>\n"
+             "        </MainMarkers>\n")
+    p = cpl_path(d)
+    write(p, read(p).replace("        <MainPicture>",
+                             block + "        <MainPicture>", 1))
+
+
 def add_closed_caption(d, ccap_xml):
     """Attach a ClosedCaption track so check_timed_text_content runs the
     closed-caption limits (stricter than the subtitle ones) on the document."""
@@ -835,48 +860,31 @@ def _(d):
 
 @fixture("markers_bad", ["marker_missing", "marker_invalid"], ["--strict"],
          "MainMarkers present, required FFMC/LFMC absent, a marker lacks Offset",
+         # the schema demands AnnotationText or Offset, so the missing Offset
+         # this fixture is for cannot help violating it too
+         also=["xml_schema_violation"],
          # DCP-o-matic writes no FFMC/LFMC, so its clean package already reports
          # marker_missing and the same mutation proves nothing there
          vendor_portable=False)
 def _(d):
-    p = cpl_path(d)
-    mm = ("        <MainMarkers>\n"
-          "          <Id>urn:uuid:00000000-0000-0000-0000-0000000000aa</Id>\n"
-          "          <EditRate>24 1</EditRate>\n"
-          "          <IntrinsicDuration>48</IntrinsicDuration>\n"
-          "          <MarkerList>\n"
-          "            <Marker><Label>FFOC</Label></Marker>\n"
-          "          </MarkerList>\n"
-          "        </MainMarkers>\n")
-    s = read(p).replace("        <MainSound>", mm + "        <MainSound>", 1)
-    write(p, s)
+    add_markers(d, [("FFOC", None)])
 
 
 @fixture("reel_edit_rate_mismatch", ["reel_edit_rate_mismatch"], [],
          "MainMarkers EditRate differs from the reel's picture EditRate")
 def _(d):
     p = cpl_path(d)
-    s = read(p)
     existing = re.search(
-        r"<(?:[\w.-]+:)?MainMarkers[\s>][\s\S]*?</(?:[\w.-]+:)?MainMarkers>", s)
+        r"<(?:[\w.-]+:)?MainMarkers[\s>][\s\S]*?</(?:[\w.-]+:)?MainMarkers>", read(p))
     if existing:
+        s = read(p)
         block = re.sub(r"<EditRate>[^<]*</EditRate>", "<EditRate>13 1</EditRate>",
                        existing.group(0), count=1)
-        s = s[:existing.start()] + block + s[existing.end():]
+        write(p, s[:existing.start()] + block + s[existing.end():])
     else:
-        # FFOC/LFOC are both present, so the marker checks stay quiet and the
+        # FFOC and LFOC are both present, so the marker checks stay quiet and the
         # rate is the only defect
-        markers = ("        <MainMarkers>\n"
-                   "          <Id>urn:uuid:00000000-0000-0000-0000-0000000000ab</Id>\n"
-                   "          <EditRate>13 1</EditRate>\n"
-                   "          <IntrinsicDuration>48</IntrinsicDuration>\n"
-                   "          <MarkerList>\n"
-                   "            <Marker><Label>FFOC</Label><Offset>1</Offset></Marker>\n"
-                   "            <Marker><Label>LFOC</Label><Offset>47</Offset></Marker>\n"
-                   "          </MarkerList>\n"
-                   "        </MainMarkers>\n")
-        s = s.replace("        <MainSound>", markers + "        <MainSound>", 1)
-    write(p, s)
+        add_markers(d, [("FFOC", 1), ("LFOC", 47)], edit_rate="13 1")
 
 
 @fixture("composition_metadata_asset_mismatch",
