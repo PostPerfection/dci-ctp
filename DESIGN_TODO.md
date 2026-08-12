@@ -223,11 +223,24 @@ and the fixture is a plain byte-patch of the 5.1 baseline's sound MXF.
 ## Toolchain note
 
 `corpus_gen.py` needs the python `cryptography` package for the certificate
-chains. The essence fixtures need `grk_compress` (grok, at `~/bin/grok/bin`) on
-PATH and the vendored `asdcp-wrap`, which build_corpus.sh builds once from
+chains. The essence fixtures need `grk_compress` (grok 20.3.9, at `~/bin/grok/bin`)
+on PATH and the vendored `asdcp-wrap`, which build_corpus.sh builds once from
 `dcpwizard/extern/asdcplib` via cmake into the source dir and caches. If either is
 absent the picture/J2K and IMF fixtures are skipped (recorded in the run output),
 not failed.
+
+Regenerating baselines also needs the dcpwizard release binary at
+`dcpwizard/rust/target/release/dcpwizard`, built and run with
+`PKG_CONFIG_PATH=$HOME/bin/grok/lib64/pkgconfig LD_LIBRARY_PATH=$HOME/bin/grok/lib64`.
+That is **lib64**, not lib, and the runtime path is needed as well as the build one.
+
+The differential (`diff/differential.py`) needs ClairMeta 1.6.2 in the uv venv at
+`diff/.venv`, plus `asdcp-info`, `asdcp-unwrap` and `sox` (14.4.2, `pixi global
+install sox`, no sudo) on PATH, or ClairMeta silently skips its MXF-essence checks
+and the buckets shift without saying why. The asdcp tools are built out-of-tree
+from dcpwizard's vendored asdcplib into `/tmp/ctp-corpus-src/asdcplib-build/src`,
+which does not survive a reboot. Photon jars come from
+`imfwizard/scripts/fetch_photon.sh` into `~/.cache/imfwizard/photon`.
 
 ## Second-vendor readiness (2026-08-12)
 
