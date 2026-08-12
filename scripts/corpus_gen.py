@@ -39,6 +39,7 @@ NONDCI_MXF = os.path.join(CORPUS, ".nondci", "nondci_res.mxf")  # non-DCI J2K wr
 # resolves its targets by content, so the same mutation applies to these too.
 DOM_BASE = os.path.join(CORPUS, "valid", "dcp_dom_ov")
 DOM_INTEROP = os.path.join(CORPUS, "valid", "dcp_dom_interop")
+SIGNED_BASE = os.path.join(CORPUS, "valid", "dcp_signed")
 
 # an enveloped ds:Signature is enough for check_dcp_signed (presence-only); its
 # value need not verify. dcpwizard emits unsigned encrypted packages, so the
@@ -349,6 +350,18 @@ def reseal(d):
 
     am = am_path(d)
     write(am, re.sub(r"<Chunk>[\s\S]*?</Chunk>", fix_chunk, read(am)))
+
+
+def strip_signature(xml):
+    """Remove a document's Signature and the Signer beside it, whatever prefix
+    they carry. Mirrors dcpwizard's own strip, so the fixture leaves the package
+    a real tool would."""
+    for local in ("Signature", "Signer"):
+        xml = re.sub(
+            r"[ \t]*<(?:[\w.-]+:)?" + local + r"[\s>][\s\S]*?</(?:[\w.-]+:)?"
+            + local + r">\n?",
+            "", xml, count=1)
+    return xml
 
 
 def side_effects(d):
@@ -1300,6 +1313,19 @@ def _(d):
     reseal(d)
 
 
+@fixture("unencrypted_dcp_not_signed", ["unencrypted_dcp_not_signed"], [],
+         "The signed baseline with both signatures removed. Every other package "
+         "here is unsigned already, so this is the only source whose baseline "
+         "does not fire the code and make the fixture vacuous.",
+         src=SIGNED_BASE, baseline="valid/dcp_signed", reseal_after=False)
+def _(d):
+    # both, then reseal: stripping only the CPL would leave the PKL's hash of it
+    # stale, and resealing a signed PKL would leave that signature stale in turn
+    for path in (cpl_path(d), pkl_path(d)):
+        write(path, strip_signature(read(path)))
+    reseal(d)
+
+
 @fixture("dcp_not_signed", ["dcp_not_signed"], [],
          "Real encrypted DCP built by dcpwizard: it carries KeyIds but no "
          "CPL/PKL ds:Signature, so check_dcp_signed fires. The baseline is the "
@@ -1546,6 +1572,12 @@ def main():
         "flags": ["--strict", "--check-mxf"], "expected_codes": [],
         "notes": "Atmos AuxData (ST 429-18) DCP; validates clean (aux_data_detected "
                  "is INFO, not an error)",
+    })
+    manifest["baselines"].append({
+        "dir": "valid/dcp_signed", "package_type": "dcp", "is_valid_baseline": True,
+        "flags": ["--strict", "--check-mxf"], "expected_codes": [],
+        "notes": "CPL and PKL carry a real ds:Signature, so it is the one baseline "
+                 "that does not emit unencrypted_dcp_not_signed",
     })
 
     # DCP-o-matic packages, present only when dcpomatic2_cli was available

@@ -98,6 +98,15 @@ ENCKEYS="$SRCDIR/enc_keys.json"
 if [[ ! -d "$CERTS" ]]; then
     "$DCPWIZARD" certificate chain --organization CTP --output "$CERTS" >/dev/null 2>&1
 fi
+# the only package here whose CPL and PKL carry a real ds:Signature. without it
+# unencrypted_dcp_not_signed has no baseline that does not already fire it, so
+# no fixture for that code can be anything but vacuous.
+build "$VALID/dcp_signed" \
+    --title "CTPSigned_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
+    --content-type TST --video "$LEFT" --audio "$WAV51" \
+    --signer-cert "$CERTS/signer.pem" --signer-key "$CERTS/signer.key" \
+    --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem"
+
 rm -f "$ENCKEYS"
 build "$CORPUS/.enc_src" \
     --title "CTPEnc_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \

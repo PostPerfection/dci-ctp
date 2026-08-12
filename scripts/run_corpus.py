@@ -70,7 +70,6 @@ UNCOVERED_REASONS = {
     "mxf_hash_mismatch": "covered via --manifest compare (manifest_size_mismatch); no plain-validate path",
     "certificate_expired": "fires on real expired cert chains (reference packages); no minimal fixture",
     "certificate_signature_algorithm_invalid": "deep cert-rule check; fires on real malformed chains only",
-    "unencrypted_dcp_not_signed": "fires on every unsigned package, baselines included, so no fixture can be non-vacuous until a signed baseline exists",
 }
 
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"

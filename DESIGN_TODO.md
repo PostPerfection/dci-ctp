@@ -1,17 +1,17 @@
 # Planned
 
 The per-error-code corpus (`scripts/build_corpus.sh` + `run_corpus.py`) proves
-all 81 dcpdoctor codes fire non-vacuously (each code is asserted absent on the
-fixture's valid baseline): 74 via isolated synthetic + subcommand fixtures and 7
+all 86 dcpdoctor codes fire non-vacuously (each code is asserted absent on the
+fixture's valid baseline): 79 via isolated synthetic + subcommand fixtures and 7
 more via the ClairMeta ECL reference packages. `ALL_CODES` is the full
 `Code::as_str` enum, so the headline count and the uncovered list share one
-denominator (81 + 0 = 81). Most fixtures run through `dcpdoctor validate`; four
+denominator (86 + 0 = 86). Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
 manifest section (kdm and auto-qc). Baselines are real builds, all clean under
 `--strict --check-mxf`: dcpwizard labeled 5.1 (`valid/dcp_ov`), stereoscopic 3D
-429-10 (`valid/dcp_3d`) and Atmos AuxData 429-18 (`valid/dcp_atmos`), plus
-DCP-o-matic SMPTE (`valid/dcp_dom_ov`) and Interop (`valid/dcp_dom_interop`).
-164 harness checks pass over 122 fixtures.
+429-10 (`valid/dcp_3d`), Atmos AuxData 429-18 (`valid/dcp_atmos`) and the signed
+package (`valid/dcp_signed`), plus DCP-o-matic SMPTE (`valid/dcp_dom_ov`) and
+Interop (`valid/dcp_dom_interop`). 301 harness checks pass over 129 fixtures.
 
 ## Two vendors, and what that covers (2026-08-12)
 
@@ -19,7 +19,7 @@ Every fixture built from the shared base and checked against the shared baseline
 is generated a second time from a DCP-o-matic base, so 54 of the 68 fixtures
 assert their code on two mastering tools' output. Both DoM baselines validate
 clean and are in the manifest: `valid/dcp_dom_ov` (SMPTE) and
-`valid/dcp_dom_interop`. 164 harness checks pass over 122 fixtures.
+`valid/dcp_dom_interop`. 301 harness checks pass over 129 fixtures.
 
 Fourteen stay single-vendor, on two grounds. Six need a source DoM cannot author
 or the base does not carry (`aux_data_atmos`, `stereo_framerate`,
@@ -72,10 +72,24 @@ Re-run `run_corpus.py` and `diff/differential.py` before quoting any number here
 - `composition_metadata_asset_mismatch`: the CompositionMetadataAsset's
   `IntrinsicDuration` one frame off the reel picture's `Duration`.
 
-`unencrypted_dcp_not_signed` has no fixture and cannot have one yet. It fires on
+`unencrypted_dcp_not_signed` now has one too, via `valid/dcp_signed`. It fires on
 every unsigned package, the baselines included, and `run_corpus.py` fails any
-expected code that also fires on the fixture's baseline. A signed baseline would
-fix it, and dcpwizard can now produce one (`create --signer-cert/--signer-key`).
+expected code that also fires on the fixture's baseline, so it needed a baseline
+that does not fire it. `build_corpus.sh` signs one package with the chain it
+already generates, and the fixture strips both signatures back off. Coverage is
+86/86.
+
+Building it found a real defect first. Every leaf certificate postkit generated
+carried no Basic Constraints and no Key Usage, which ST 430-2 requires, because
+rcgen writes no extensions at all for `IsCa::NoCa`. Root and intermediate were
+the only certificates asking for CA constraints, so they were always right and
+only the signer was bare. Nothing else here would have caught it: dcpwizard's own
+tests filter for hash and signature errors, and the `certificate_*` fixtures use
+chains `corpus_gen.py` builds in python. Fixed in postkit 7d12db8.
+
+`build_corpus.sh` caches that chain (`if [[ ! -d "$CERTS" ]]`), so a stale one
+outlives a postkit fix indefinitely. Delete `$CTP_SRC_DIR/certs` after any
+postkit certificate change, or the corpus reports defects that are already fixed.
 
 `also_emits` is no longer declared per fixture for the asset map size. The DoM
 variants reuse the same mutation functions, and only DoM declares a chunk
@@ -192,14 +206,13 @@ baseline; it is recorded in each fixture's `also_emits`.
 
 ## Differential vs ClairMeta (diff/differential.py): current state
 
-Re-run 2026-08-12 over a corpus regenerated against the dcpwizard that writes a
-CompositionMetadataAsset, carrying the five codes dcpdoctor added and the
-declared-side-effect cleanup. `asdcp-info`, `asdcp-unwrap` and `sox` on PATH so
-ClairMeta's MXF-essence checks run. Buckets over 161 packages (5 baselines, 128
-fixtures, 28 ECL references): BOTH_PASS 36, BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18,
-CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5.
+Re-run 2026-08-12 over a corpus carrying the signed baseline, the five codes
+dcpdoctor added and the declared-side-effect cleanup. `asdcp-info`,
+`asdcp-unwrap` and `sox` on PATH so ClairMeta's MXF-essence checks run. Buckets
+over 163 packages (6 baselines, 129 fixtures, 28 ECL references): BOTH_PASS 38,
+BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18, CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5.
 
-dcpdoctor catches 128 of 128 injected defects, ClairMeta 100.
+dcpdoctor catches 129 of 129 injected defects, ClairMeta 100.
 
 `subtitle_glyph_missing` and `reel_edit_rate_mismatch` sit in a bucket that reads
 worse than it is. Both are WARNING in dcpdoctor, so their packages pass, and the
@@ -287,14 +300,13 @@ WARNING deliberately, no SMPTE "shall" demands rejection:
 - `mediainfo` is still absent. Only `probe_mediainfo` uses it and no DCP check
   calls that, so it changes nothing.
 
-## Remaining coverage gaps: one
+## Remaining coverage gaps: none
 
-85 of the 86 codes in `ALL_CODES` have a fixture that fires them and a baseline
-that does not. The exception is `unencrypted_dcp_not_signed`, which needs a
-signed baseline before any fixture for it can be non-vacuous. `UNCOVERED_REASONS`
-carries it plus three entries for codes that only the ECL reference packages or
-the `--manifest` compare reach: those three are what a run without
-`CLAIRMETA_DATA` prints as uncovered even though a full run resolves them.
+All 86 codes in `ALL_CODES` have a fixture that fires them and a baseline that
+does not. `UNCOVERED_REASONS` still carries three entries, for codes only the ECL
+reference packages or the `--manifest` compare reach: those are what a run
+without `CLAIRMETA_DATA` prints as uncovered even though a full run resolves
+them.
 
 `sound_invalid_block_align` was the last gap, recorded as unreachable because
 ffprobe derives block_align from channels x bit-depth. The real reason it never
