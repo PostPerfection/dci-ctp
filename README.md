@@ -63,15 +63,18 @@ DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage: 79 of 80 dcpdoctor codes are exercised (71 by isolated synthetic +
-subcommand fixtures, 8 more by the ClairMeta reference packages). `ALL_CODES` in
+Coverage: all 81 dcpdoctor codes are exercised (74 by isolated synthetic +
+subcommand fixtures, 7 more by the ClairMeta reference packages). `ALL_CODES` in
 `run_corpus.py` is the full `Code::as_str` enum, so the headline count and the
-uncovered list share one denominator (79 + 1 = 80). Most fixtures run through
+uncovered list share one denominator (81 + 0 = 81). Most fixtures run through
 `dcpdoctor validate`; four codes reachable only through other subcommands (kdm,
 auto-qc) use a `subcommand_fixtures` manifest section. `run_corpus.py` prints the
-full per-code list and why the remaining one is uncovered:
-`sound_invalid_block_align`, unreachable via validate because ffprobe derives
-block_align from channels x bit-depth (covered by an mxf.rs unit test).
+full per-code list and nothing is uncovered.
+
+A fixture flag of the form `@name` is a file inside the package being validated,
+and `%name` one inside the corpus. `sound_invalid_block_align` uses the second
+form for its KDM and recipient key, which dcpdoctor needs to read the encrypted
+sound essence and which would be foreign files inside the package.
 
 The certificate fixtures need the python `cryptography` package, which
 `corpus_gen.py` uses to build their ST 430-2 chains. The picture/J2K and IMF

@@ -52,14 +52,11 @@ env). These become the shared corpus for differential testing against
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 
-## Coverage: 73 of 80 codes
+## Coverage: 81 of 81 codes
 
-65 codes have isolated synthetic or subcommand fixtures, and 8 more come from
+74 codes have isolated synthetic or subcommand fixtures, and 7 more come from
 the ClairMeta reference packages. `run_corpus.py` prints the live list and a reason
-per gap. Uncovered (7): the six deep certificate-rule codes, which only fire
-together on real malformed chains, and `sound_invalid_block_align`, which
-`validate` cannot reach because ffprobe derives block_align from channels x
-bit-depth (covered by an mxf.rs unit test).
+per gap, and there are no gaps left.
 
 Fixture machinery beyond the plain clone+mutate:
 
@@ -121,9 +118,10 @@ optional non-blocking CI job (`encryption`) in a few seconds.
 
 `diff/differential.py` (uv project, ClairMeta 1.6.2) runs both validators over the
 whole corpus and classifies every package. ClairMeta's MXF-essence checks need
-`asdcp-info`; absent it, they bypass, so this diffs XML/structure/signature/cert
-checks. IMF-vs-Photon is not run: the corpus has no IMF packages. Writes
-`diff/report.{json,md}` (gitignored, regenerated). Run:
+`asdcp-info`, `asdcp-unwrap` and `sox` on PATH and bypass silently without them,
+so `diff/README.md` covers getting them there. IMF-vs-Photon is not run: the
+corpus has no IMF packages. Writes `diff/report.{json,md}` (gitignored,
+regenerated). Run:
 
 ```bash
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor \
@@ -131,29 +129,26 @@ CLAIRMETA_DATA=../../dci-ctp-work/ClairMeta_Data \
 uv run --project diff diff/differential.py
 ```
 
-Full-corpus result (2 baselines + 32 fixtures + 28 ECL references = 62):
-BOTH_FAIL 21, DCPDOCTOR_ONLY_FAIL 25, CLAIRMETA_ONLY_FAIL 14, TOOL_ERROR 2,
-BOTH_PASS 0. dcpdoctor caught 32/32 injected fixture defects; ClairMeta 21/32.
+The current bucket counts and what moved them live in `DESIGN_TODO.md` under
+"Differential vs ClairMeta", so they stay in one place.
 
 Method: every fixture derives from one dcpwizard base that ClairMeta already
 rejects on schema grounds, so ClairMeta's catch of an injected defect is measured
 by the checks that newly fail vs the baseline, not by the raw verdict.
 
-### dcpdoctor bug found: SHA-256-only signature verification
+### stricter-by-design divergences
 
-All 25 DCPDOCTOR_ONLY_FAIL are ClairMeta-clean ECL DCPs that dcpdoctor rejects with
-`signature_invalid`. Root cause: `postkit::xmldsig` hardcodes SHA-256 for the
-reference digest and the RSA signature (`sha256(&c14n(..))`,
-`Pkcs1v15Sign::new::<sha2::Sha256>()`) and never reads the document's declared
-`DigestMethod`/`SignatureMethod`. The ECL CPLs/PKLs are signed with
-`xmldsig#sha1`, so the recomputed digest never matches. Fix: read the declared
-algorithm and dispatch SHA-1 vs SHA-256. Secondary stricter divergence: two Interop
-packages emit `missing_required_element` (SMPTE rules applied to Interop). dcpdoctor
-now matches ClairMeta on external OV references: a VF package referencing an asset
-absent from the package emits a `supplemental_ov_not_provided` WARNING, and
+dcpdoctor matches ClairMeta on external OV references: a VF package referencing an
+asset absent from the package emits a `supplemental_ov_not_provided` WARNING, and
 `cross_ref_broken` fires only when `--ov <dir>` is given and the id resolves in
-neither the package nor the OV. `certificate_expired` (25 pkgs) is a defensible stricter
-policy: ClairMeta downgrades expired certs to INFO.
+neither the package nor the OV. `certificate_expired` is a defensible stricter
+policy: ClairMeta downgrades expired certs to INFO. Two Interop packages emit
+`missing_required_element` because SMPTE rules are applied to Interop.
+
+This diff is what found `postkit::xmldsig` hardcoding SHA-256 for the reference
+digest and the RSA signature, which rejected every SHA-1-signed ECL package.
+Verification now reads the declared `DigestMethod` and `SignatureMethod`, and no
+reference package lands in DCPDOCTOR_ONLY_FAIL.
 
 ### dcpdoctor coverage gaps ClairMeta exposed
 
@@ -173,12 +168,14 @@ policy: ClairMeta downgrades expired certs to INFO.
 
 ### where dcpdoctor is ahead of ClairMeta
 
-ClairMeta missed 11/32 injected defects dcpdoctor catches: `duplicate_asset_id`,
-`missing_cpl`, `cpl_invalid_content_kind`, required FFMC/LFMC markers
-(`markers_bad`), `supplemental_opl`, `signature_invalid` (the synthetic broken
-sig), `certificate_chain_broken`, MCA labeling (`sound_no_mca`), `mxf_unreadable`,
-external-manifest compare (`manifest_size_mismatch`), plus `isdcf_naming_violation`
-(INFO in both). ClairMeta also crashes internally (KeyError) on some malformed
-CPLs; the 2 TOOL_ERROR are the reel-less-CPL fixture (crash) and ECL08 (a VF that
-needs asdcp-unwrap to relink, unavailable). The 2 reference BOTH_FAIL (ECL31/ECL32,
-non-coherent encrypted) are real agreement: ClairMeta flags `check_cpl_reel_coherence`.
+dcpdoctor catches every injected defect in the corpus and ClairMeta misses a
+fifth of them. The named list is regenerated into `diff/report.md` under "Defect
+coverage over negative fixtures", so it is not repeated here. The groups are the
+deep certificate rules, package hygiene (foreign, empty and non-ASCII files),
+external-manifest compare, the J2K codestream checks, and the structural MXF
+checks.
+
+ClairMeta also crashes internally on some malformed CPLs. The 2 TOOL_ERROR are the
+reel-less-CPL fixture and the IMF IMP, which is a Photon job rather than a
+ClairMeta one. The 2 reference BOTH_FAIL (ECL31/ECL32, non-coherent encrypted) are
+real agreement: ClairMeta flags `check_cpl_reel_coherence`.
