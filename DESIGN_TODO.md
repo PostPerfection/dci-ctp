@@ -192,14 +192,19 @@ baseline; it is recorded in each fixture's `also_emits`.
 
 ## Differential vs ClairMeta (diff/differential.py): current state
 
-Re-run 2026-08-12, second time that day, over a corpus regenerated against the
-dcpwizard that writes a CompositionMetadataAsset and carrying the five codes
-dcpdoctor added. `asdcp-info`, `asdcp-unwrap` and `sox` on PATH so ClairMeta's
-MXF-essence checks run. Buckets over 162 packages (5 baselines, 129 fixtures, 28
-ECL references): BOTH_PASS 36, BOTH_FAIL 79, DCPDOCTOR_ONLY_FAIL 18,
-CLAIRMETA_ONLY_FAIL 24, TOOL_ERROR 5.
+Re-run 2026-08-12 over a corpus regenerated against the dcpwizard that writes a
+CompositionMetadataAsset, carrying the five codes dcpdoctor added and the
+declared-side-effect cleanup. `asdcp-info`, `asdcp-unwrap` and `sox` on PATH so
+ClairMeta's MXF-essence checks run. Buckets over 161 packages (5 baselines, 128
+fixtures, 28 ECL references): BOTH_PASS 36, BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18,
+CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5.
 
-dcpdoctor catches 129 of 129 injected defects, ClairMeta 101.
+dcpdoctor catches 128 of 128 injected defects, ClairMeta 100.
+
+`subtitle_glyph_missing` and `reel_edit_rate_mismatch` sit in a bucket that reads
+worse than it is. Both are WARNING in dcpdoctor, so their packages pass, and the
+differential splits on pass/fail and never sees a warning. Neither is a missed
+defect: `run_corpus.py` asserts both fire.
 
 - `check_assets_am_size` was the one gap only the second vendor could show, and
   dcpdoctor's `assetmap_size_mismatch` closes it. ClairMeta checks each ASSETMAP
