@@ -9,8 +9,37 @@ denominator (81 + 0 = 81). Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
 manifest section (kdm and auto-qc). Baselines are real dcpwizard builds: labeled
 5.1 (`valid/dcp_ov`), stereoscopic 3D 429-10 (`valid/dcp_3d`), Atmos AuxData
-429-18 (`valid/dcp_atmos`), all clean under `--strict --check-mxf`. 103 harness
+429-18 (`valid/dcp_atmos`), all clean under `--strict --check-mxf`. 106 harness
 checks pass.
+
+## The corpus only really tests one vendor
+
+Every baseline and therefore every derived fixture is a dcpwizard build. The 28
+ECL reference packages are the only essence in here that dcpwizard did not
+produce, and they are fixed inputs nobody can inject a defect into. So 81 of 81
+codes covered means every code fires on dcpwizard-shaped input, not that it fires
+on a DCP from any other mastering tool.
+
+That matters more than a coverage number, because the finding that started this
+work was that dcpdoctor and dcpwizard agreed with each other while both were
+wrong, and four conformance defects fell out the moment an independent
+implementation looked. A corpus built from one lineage can reproduce that failure
+in a quieter way: a check tuned to how dcpwizard writes a field passes here and
+misses the same defect written differently elsewhere.
+
+Closing it needs packages from two or three other mastering tools run through the
+differential, mutated the same way. Until then, read the coverage number as
+"every code has a working check" and not as "every code catches the defect in the
+wild".
+
+## Docs here have gone stale repeatedly
+
+Four separate claims in this repo's own docs were wrong when last checked: the
+README's covered-code count, DESIGN.md's differential snapshot, DESIGN.md calling
+XSD validation unwired when `validate` emits `xml_schema_violation`, and its
+certificate-rule gap list, which had inverted after dcpdoctor gained the six
+codes ClairMeta lacks. A fixture annotation also claimed a code that never fired.
+Re-run `run_corpus.py` and `diff/differential.py` before quoting any number here.
 
 ## Coverage added 2026-08-12
 
