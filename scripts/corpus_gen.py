@@ -78,8 +78,29 @@ def clone(dest, copy_mxf=False, src=BASE):
     return dest
 
 
+def track_file(d, element):
+    """The essence file a CPL track element points at, resolved id -> path
+    through the ASSETMAP. A track file's name is the mastering tool's business,
+    so resolving by id is the only way this works across vendors."""
+    asset_id = cpl_asset_id(d, element)
+    relative = assetmap_id_to_path(d).get(f"urn:uuid:{asset_id}")
+    if not relative:
+        raise FileNotFoundError(f"{element} asset {asset_id} not in the ASSETMAP of {d}")
+    return os.path.join(d, relative)
+
+
 def sound_mxf(d):
-    return find(d, "sound_*.mxf")
+    return track_file(d, "MainSound")
+
+
+def picture_mxf(d):
+    """The picture track file, stereoscopic or not."""
+    for element in ("MainPicture", "MainStereoscopicPicture"):
+        try:
+            return track_file(d, element)
+        except (AttributeError, FileNotFoundError):
+            continue
+    raise FileNotFoundError(f"no picture track file in {d}")
 
 
 def patch_bytes(path, old_hex, new_hex, count=1):
@@ -91,6 +112,30 @@ def patch_bytes(path, old_hex, new_hex, count=1):
     n = data.count(old)
     assert n == count, f"expected {count} occurrence(s) of {old_hex} in {path}, found {n}"
     open(path, "wb").write(data.replace(old, new, count))
+
+
+def local_tag_value(path, tag_hex, length):
+    """Current value of an MXF local tag, as an int. The tag must appear exactly
+    once so a coincidental byte match cannot pass silently."""
+    header = bytes.fromhex(tag_hex + f"{length:04x}")
+    data = open(path, "rb").read()
+    n = data.count(header)
+    assert n == 1, f"expected 1 occurrence of local tag {tag_hex} in {path}, found {n}"
+    start = data.index(header) + len(header)
+    return int.from_bytes(data[start:start + length], "big")
+
+
+def patch_local_tag(path, tag_hex, length, new_value):
+    """Set an MXF local tag, reading the current value rather than assuming it,
+    so a fixture holds against essence from any mastering tool."""
+    old = local_tag_value(path, tag_hex, length)
+    width = length * 2
+    patch_bytes(
+        path,
+        tag_hex + f"{length:04x}" + f"{old:0{width}x}",
+        tag_hex + f"{length:04x}" + f"{new_value:0{width}x}",
+    )
+    return old
 
 
 def break_mxf_footer(path):
@@ -115,7 +160,7 @@ def break_mxf_footer(path):
 def replace_picture_mxf(d, src_mxf):
     """Swap the picture MXF in a fixture for another (non-DCI) essence, keeping
     the original filename so the ASSETMAP/PKL still resolve. reseal fixes hashes."""
-    shutil.copy(src_mxf, find(d, "picture_*.mxf"))
+    shutil.copy(src_mxf, picture_mxf(d))
 
 
 def patch_j2k_component_count(mxf_path):
@@ -195,15 +240,40 @@ def patch_j2k_legacy_ffff(mxf_path):
     open(mxf_path, "wb").write(data)
 
 
+def find_by_root_element(d, root):
+    """The XML in `d` whose root element has this local name. Identifying a
+    document by its content rather than its filename is what lets a corpus hold
+    packages from more than one mastering tool: dcpwizard writes CPL_*.xml and
+    PKL_*.xml, DCP-o-matic writes cpl_*.xml and pkl_*.xml."""
+    for name in sorted(os.listdir(d)):
+        path = os.path.join(d, name)
+        if not os.path.isfile(path) or not name.lower().endswith(".xml"):
+            continue
+        with open(path, errors="replace") as f:
+            head = f.read(4096)
+        # the first element that is not a declaration, comment or doctype. An
+        # ASSETMAP carries a <PackingList> flag per asset, so anything looser
+        # than the root element matches the wrong document.
+        opening = re.search(r"<\s*(?![?!])(?:[\w.-]+:)?([\w.-]+)", head)
+        if opening and opening.group(1) == root:
+            return path
+    raise FileNotFoundError(f"no {root} document in {d}")
+
+
 def cpl_path(d):
-    return find(d, "CPL_*.xml")
+    return find_by_root_element(d, "CompositionPlaylist")
 
 
 def pkl_path(d):
-    return find(d, "PKL_*.xml")
+    return find_by_root_element(d, "PackingList")
 
 
 def am_path(d):
+    # ST 429-9 allows either name, and Interop packages use the bare one
+    for name in ("ASSETMAP.xml", "ASSETMAP"):
+        path = os.path.join(d, name)
+        if os.path.isfile(path):
+            return path
     return os.path.join(d, "ASSETMAP.xml")
 
 
@@ -261,9 +331,18 @@ def reseal(d):
 
 # ── mutation helpers ─────────────────────────────────────────────────────────
 
+def cpl_asset_id(d, element):
+    """Bare asset id of a CPL track element. Tolerates a namespace prefix and
+    any element order inside the asset, which vendors do differ on."""
+    body = re.search(
+        rf"<(?:[\w.-]+:)?{element}\b[^>]*>([\s\S]*?)</(?:[\w.-]+:)?{element}>",
+        read(cpl_path(d)),
+    ).group(1)
+    return re.search(r"<(?:[\w.-]+:)?Id>\s*urn:uuid:([0-9a-fA-F-]{36})", body).group(1).lower()
+
+
 def pic_id(d):
-    c = read(cpl_path(d))
-    return re.search(r"<MainPicture>\s*<Id>(urn:uuid:[^<]+)</Id>", c).group(1)
+    return f"urn:uuid:{cpl_asset_id(d, 'MainPicture')}"
 
 
 SUB_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444444"
@@ -550,8 +629,9 @@ def _(d):
 @fixture("asset_not_found", ["asset_not_found"], [],
          "ASSETMAP points the picture chunk at a nonexistent file")
 def _(d):
+    picture = os.path.basename(picture_mxf(d))
     s = read(am_path(d))
-    s = re.sub(r"<Path>picture_[^<]+</Path>", "<Path>missing_picture.mxf</Path>", s)
+    s = s.replace(f"<Path>{picture}</Path>", "<Path>missing_picture.mxf</Path>", 1)
     write(am_path(d), s)
 
 
@@ -899,21 +979,23 @@ def _(d):
 
 @fixture("sound_invalid_quantization", ["sound_invalid_quantization"],
          ["--check-mxf"],
-         "Sound MXF QuantizationBits (local tag 3d01) byte-patched 24 -> 16 bits",
+         "Sound MXF QuantizationBits (local tag 3d01) patched to 16 bits, which "
+         "DCI does not allow",
          copy_mxf=True)
 def _(d):
-    # 3d01 len 0004 value 00000018 (24) -> 00000010 (16)
-    patch_bytes(sound_mxf(d), "3d010004" + "00000018", "3d010004" + "00000010")
+    patch_local_tag(sound_mxf(d), "3d01", 4, 16)
 
 
 @fixture("sound_invalid_block_align", ["sound_invalid_block_align"],
          ["--check-mxf"],
-         "Sound MXF WaveAudioDescriptor BlockAlign (local tag 3d0a) byte-patched "
-         "48 -> 36, against 16 channels of 24-bit",
+         "Sound MXF WaveAudioDescriptor BlockAlign (local tag 3d0a) patched one "
+         "channel short of channels x bytes-per-sample",
          copy_mxf=True)
 def _(d):
-    # 3d0a len 0002 value 0030 (48) -> 0024 (36)
-    patch_bytes(sound_mxf(d), "3d0a0002" + "0030", "3d0a0002" + "0024")
+    mxf = sound_mxf(d)
+    bytes_per_sample = local_tag_value(mxf, "3d01", 4) // 8
+    channels = local_tag_value(mxf, "3d07", 4)
+    patch_local_tag(mxf, "3d0a", 2, (channels - 1) * bytes_per_sample)
 
 
 @fixture("stereo_framerate", ["stereo_mismatch"], ["--check-mxf"],
@@ -966,7 +1048,7 @@ def _(d):
          "Picture MXF truncated to non-MXF bytes; PKL resealed to it",
          copy_mxf=True)
 def _(d):
-    mxf = find(d, "picture_*.mxf")
+    mxf = picture_mxf(d)
     with open(mxf, "wb") as f:
         f.write(b"NOT AN MXF FILE" * 4)
 
@@ -976,7 +1058,7 @@ def _(d):
          reseal_after=False, baseline="invalid/manifest_size_mismatch",
          baseline_flags=["--manifest", "@refmanifest_good.json"])
 def _(d):
-    mxf = os.path.basename(find(d, "picture_*.mxf"))
+    mxf = os.path.basename(picture_mxf(d))
     real = os.path.getsize(os.path.join(d, mxf))
     write(os.path.join(d, "refmanifest_good.json"),
           json.dumps({"assets": [{"filename": mxf, "size": real}]}))
@@ -1003,7 +1085,7 @@ def _(d):
          "still parses, so read_mxf_info succeeds and no mxf_unreadable fires.",
          copy_mxf=True)
 def _(d):
-    break_mxf_footer(find(d, "picture_*.mxf"))
+    break_mxf_footer(picture_mxf(d))
 
 
 @fixture("interop_namespace_wrong", ["interop_namespace_wrong"], [],
@@ -1044,7 +1126,7 @@ def _(d):
          "declares 4 components (asdcp-wrap refuses a 4-component essence, so the "
          "count is patched into a valid 3-component wrap)", copy_mxf=True)
 def _(d):
-    patch_j2k_component_count(find(d, "picture_*.mxf"))
+    patch_j2k_component_count(picture_mxf(d))
 
 
 @fixture("picture_invalid_frame_rate", ["picture_invalid_frame_rate"], [],
@@ -1171,7 +1253,7 @@ def _(d):
          "bit at 2K, so run_deep_j2k's per-frame scan reports frame 0",
          copy_mxf=True)
 def _(d):
-    patch_j2k_guard_bits(find(d, "picture_*.mxf"))
+    patch_j2k_guard_bits(picture_mxf(d))
 
 
 @fixture("j2k_legacy_ffff", ["j2k_legacy_ffff"], ["--check-mxf"],
@@ -1180,7 +1262,7 @@ def _(d):
          "condition (SMPTE Legacy Compatibility Note 1)",
          copy_mxf=True)
 def _(d):
-    patch_j2k_legacy_ffff(find(d, "picture_*.mxf"))
+    patch_j2k_legacy_ffff(picture_mxf(d))
 
 
 def build_encrypted_signed_baseline():

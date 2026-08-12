@@ -197,3 +197,24 @@ PATH and the vendored `asdcp-wrap`, which build_corpus.sh builds once from
 `dcpwizard/extern/asdcplib` via cmake into the source dir and caches. If either is
 absent the picture/J2K and IMF fixtures are skipped (recorded in the run output),
 not failed.
+
+## Second-vendor readiness (2026-08-12)
+
+`corpus_gen.py` no longer identifies anything by filename. Documents resolve by
+root element (`CompositionPlaylist`, `PackingList`), the ASSETMAP resolves under
+either ST 429-9 name, and track files resolve from the CPL asset id through the
+ASSETMAP. The byte patches read the current local-tag value instead of asserting
+a literal, so a fixture holds against any channel count or bit depth.
+
+Verified against three packages: a dcpwizard SMPTE build, a DCP-o-matic SMPTE
+build (`cpl_`/`pkl_`/`j2c_`/`pcm_` lowercase names) and a DCP-o-matic Interop
+build (extensionless `ASSETMAP`). All five resolvers return the right file for
+each. The corpus itself is still dcpwizard-only, so this is the prerequisite
+done, not the diversity gap closed.
+
+One dcpdoctor false positive already fell out of pointing it at DCP-o-matic
+output: ISDCF Doc 1 allows a version number after the content type, so `TST-1`
+is legal and dcpdoctor flagged it. Fixed to accept a digits-only suffix, which
+keeps `TST-3D-48` and `TST-48-600` flagged. `TST-50` now passes, because a
+digits-only suffix is indistinguishable from a version, and ECL43's recorded
+codes were refreshed to match.
