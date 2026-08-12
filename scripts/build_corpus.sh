@@ -95,9 +95,10 @@ build "$CORPUS/.mono_src" \
 # no CPL/PKL signature, so this is the real dcp_not_signed fixture source.
 CERTS="$SRCDIR/certs"
 ENCKEYS="$SRCDIR/enc_keys.json"
-if [[ ! -d "$CERTS" ]]; then
-    "$DCPWIZARD" certificate chain --organization CTP --output "$CERTS" >/dev/null 2>&1
-fi
+# regenerated every run: a kept chain survives a postkit certificate fix, and the
+# corpus then reports defects that are already fixed
+rm -rf "$CERTS"
+"$DCPWIZARD" certificate chain --organization CTP --output "$CERTS" >/dev/null 2>&1
 # the only package here whose CPL and PKL carry a real ds:Signature. without it
 # unencrypted_dcp_not_signed has no baseline that does not already fire it, so
 # no fixture for that code can be anything but vacuous.

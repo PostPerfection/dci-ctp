@@ -87,10 +87,6 @@ only the signer was bare. Nothing else here would have caught it: dcpwizard's ow
 tests filter for hash and signature errors, and the `certificate_*` fixtures use
 chains `corpus_gen.py` builds in python. Fixed in postkit 7d12db8.
 
-`build_corpus.sh` caches that chain (`if [[ ! -d "$CERTS" ]]`), so a stale one
-outlives a postkit fix indefinitely. Delete `$CTP_SRC_DIR/certs` after any
-postkit certificate change, or the corpus reports defects that are already fixed.
-
 `also_emits` is no longer declared per fixture for the asset map size. The DoM
 variants reuse the same mutation functions, and only DoM declares a chunk
 `Length`, so `build_fixture` reads it back off the built package instead:
