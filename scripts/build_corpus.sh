@@ -69,10 +69,19 @@ mkdir -p "$VALID"
 build "$VALID/dcp_ov" \
     --title "CTPBase_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
     --content-type TST --video "$LEFT" --audio "$WAV51"
-# stereoscopic 3D (429-10)
+# stereoscopic 3D (429-10). --video-bit-rate caps each eye, and both eyes share
+# one edit unit, so 100 keeps the measured peak near 200 Mb/s, under the DCI 250
+# limit with headroom (125 lands exactly on 250.01 and fails).
 build "$VALID/dcp_3d" \
     --title "CTP3D_TST_F-3D_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
-    --content-type TST --video "$LEFT" --audio "$WAV51" --right-eye "$RIGHT"
+    --content-type TST --video "$LEFT" --audio "$WAV51" --right-eye "$RIGHT" \
+    --video-bit-rate 100
+# the same 3D package at the full 2K bandwidth, which measures over the DCI
+# peak limit: the j2k_bitrate_exceeded fixture source
+build "$CORPUS/.bitrate_src" \
+    --title "CTPRate_TST_F-3D_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
+    --content-type TST --video "$LEFT" --audio "$WAV51" --right-eye "$RIGHT" \
+    --video-bit-rate 250
 # Atmos AuxData (429-18)
 build "$VALID/dcp_atmos" \
     --title "CTPAtmos_TST_F_EN_US_51-ATMOS_2K_PPF_20260721_PPF_SMPTE_OV" \
@@ -108,6 +117,9 @@ gen_kdm() {
         --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem" \
         --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3" >/dev/null 2>&1
 }
+# the KDM recipient is the signer cert, so its key decrypts the content keys.
+# fixtures that need dcpdoctor to read encrypted essence reference both.
+cp "$CERTS/signer.key" "$SUBCMD/recipient.key"
 gen_kdm "2020-01-01T00:00:00+00:00" "2021-01-01T00:00:00+00:00" "$SUBCMD/kdm_expired.xml"
 gen_kdm "2090-01-01T00:00:00+00:00" "2091-01-01T00:00:00+00:00" "$SUBCMD/kdm_future.xml"
 gen_kdm "2024-01-01T00:00:00+00:00" "2090-01-01T00:00:00+00:00" "$SUBCMD/kdm_valid.xml"

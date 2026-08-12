@@ -32,6 +32,7 @@ MONO = os.path.join(CORPUS, ".mono_src")  # unlabeled-sound source (built by bui
 THREE_D = os.path.join(CORPUS, "valid", "dcp_3d")
 ATMOS = os.path.join(CORPUS, "valid", "dcp_atmos")
 ENC_SRC = os.path.join(CORPUS, ".enc_src")  # encrypted (unsigned) DCP, built by build_corpus.sh
+BITRATE_SRC = os.path.join(CORPUS, ".bitrate_src")  # 3D at full 2K bandwidth, over the DCI peak
 IMF_SRC = os.path.join(CORPUS, "valid", "imf_ov")  # IMF IMP, built by build_corpus.sh
 NONDCI_MXF = os.path.join(CORPUS, ".nondci", "nondci_res.mxf")  # non-DCI J2K wrapped by asdcp-wrap
 
@@ -266,6 +267,8 @@ def pic_id(d):
 
 
 SUB_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444444"
+# the id the mxf_asset_id_mismatch fixture puts in place of the picture asset id
+REWRITTEN_PICTURE_ID = "5b17e100-1111-2222-3333-444444444477"
 CCAP_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444455"
 FONT_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444466"
 DCST_NS = "http://www.smpte-ra.org/schemas/428-7/2010/DCST"
@@ -897,10 +900,25 @@ def _(d):
 @fixture("sound_invalid_quantization", ["sound_invalid_quantization"],
          ["--check-mxf"],
          "Sound MXF QuantizationBits (local tag 3d01) byte-patched 24 -> 16 bits",
-         copy_mxf=True, also=["sound_invalid_block_align"])
+         copy_mxf=True)
 def _(d):
     # 3d01 len 0004 value 00000018 (24) -> 00000010 (16)
     patch_bytes(sound_mxf(d), "3d010004" + "00000018", "3d010004" + "00000010")
+
+
+@fixture("sound_invalid_block_align", ["sound_invalid_block_align"],
+         ["--check-mxf", "--kdm", "%subcmd/kdm_valid.xml",
+          "--recipient-key", "%subcmd/recipient.key"],
+         "Sound MXF WaveAudioDescriptor BlockAlign (local tag 3d0a) byte-patched "
+         "48 -> 36, against 16 channels of 24-bit. The package is the encrypted "
+         "one because only the encrypted path reads BlockAlign out of the "
+         "descriptor: ffprobe omits the field for MXF, so the cleartext path "
+         "reads 0 and skips the check",
+         src=ENC_SRC, baseline="valid/dcp_encrypted_signed", copy_mxf=True,
+         also=["encryption_detected", "kdm_required"])
+def _(d):
+    # 3d0a len 0002 value 0030 (48) -> 0024 (36)
+    patch_bytes(sound_mxf(d), "3d0a0002" + "0030", "3d0a0002" + "0024")
 
 
 @fixture("stereo_framerate", ["stereo_mismatch"], ["--check-mxf"],
@@ -1130,6 +1148,29 @@ def _(d):
     add_closed_caption(d, dcst(lines=("♪ music ★",)))
 
 
+@fixture("mxf_asset_id_mismatch", ["mxf_asset_id_mismatch"], [],
+         "The picture asset id is rewritten to a fresh uuid in the CPL, PKL and "
+         "ASSETMAP together, so the package resolves the asset but the MXF still "
+         "declares its own AssetUUID. This is what dcpwizard emitted before "
+         "c1d73a6")
+def _(d):
+    # read the id once, before the CPL rewrite changes what pic_id returns, and
+    # match <Id> only so the ASSETMAP <Path> keeps naming the file on disk
+    old = pic_id(d)[len("urn:uuid:"):]
+    for p in (cpl_path(d), pkl_path(d), am_path(d)):
+        write(p, re.sub(rf"(<Id>urn:uuid:){old}(</Id>)",
+                        rf"\g<1>{REWRITTEN_PICTURE_ID}\g<2>", read(p)))
+
+
+@fixture("j2k_bitrate_exceeded", ["j2k_bitrate_exceeded"], ["--check-mxf"],
+         "Real 3D DCP encoded at the full 250 Mb/s 2K bandwidth. Both eyes share "
+         "one edit unit, so the measured peak lands over the DCI limit. The "
+         "baseline is the same package encoded at 100 Mb/s per eye",
+         src=BITRATE_SRC, baseline="valid/dcp_3d", reseal_after=False)
+def _(d):
+    pass  # the essence is already over the limit
+
+
 @fixture("j2k_guard_bits", ["j2k_guard_bits"], ["--deep-j2k"],
          "First frame's QCD guard-bit field zeroed. SMPTE RDD 52 requires 1 guard "
          "bit at 2K, so run_deep_j2k's per-frame scan reports frame 0",
@@ -1191,9 +1232,10 @@ def main():
         print(f"ERROR: base DCP missing at {BASE}; run build_corpus.sh first", file=sys.stderr)
         sys.exit(1)
 
-    # make the real 3D baseline schema-valid (dcpwizard element-order quirk)
-    if os.path.isdir(THREE_D):
-        fixup_stereo_order(THREE_D)
+    # make the real 3D packages schema-valid (dcpwizard element-order quirk)
+    for stereo_dir in (THREE_D, BITRATE_SRC):
+        if os.path.isdir(stereo_dir):
+            fixup_stereo_order(stereo_dir)
 
     # the dcp_not_signed baseline (encrypted + synthetic signatures)
     if os.path.isdir(ENC_SRC):
