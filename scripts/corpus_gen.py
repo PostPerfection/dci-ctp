@@ -351,6 +351,26 @@ def reseal(d):
     write(am, re.sub(r"<Chunk>[\s\S]*?</Chunk>", fix_chunk, read(am)))
 
 
+def assetmap_length_disagrees(d):
+    """True when a chunk declares a Length the file on disk does not have.
+    A mutation that resizes an XML file leaves this behind wherever Length is
+    declared at all, which is DCP-o-matic's packages and not dcpwizard's, so the
+    same mutation emits an extra code on one vendor and not the other."""
+    am = am_path(d)
+    if not os.path.isfile(am):
+        return False
+    for m in re.finditer(r"<Chunk>[\s\S]*?</Chunk>", read(am)):
+        block = m.group(0)
+        length = re.search(r"<Length>\s*(\d+)\s*</Length>", block)
+        rel = re.search(r"<Path>([^<]+)</Path>", block)
+        if not length or not rel:
+            continue
+        fp = os.path.join(d, rel.group(1).strip())
+        if os.path.exists(fp) and os.path.getsize(fp) != int(length.group(1)):
+            return True
+    return False
+
+
 # ── mutation helpers ─────────────────────────────────────────────────────────
 
 def cpl_asset_id(d, element):
@@ -658,6 +678,30 @@ def _(d):
     write(am_path(d), s)
 
 
+@fixture("assetmap_invalid_name", ["assetmap_invalid_name"], [],
+         "SMPTE asset map named ASSETMAP instead of ASSETMAP.xml")
+def _(d):
+    # reseal runs after this and am_path accepts either name, so the rename is
+    # the only defect left
+    os.rename(os.path.join(d, "ASSETMAP.xml"), os.path.join(d, "ASSETMAP"))
+
+
+@fixture("assetmap_size_mismatch", ["assetmap_size_mismatch"], [],
+         "ASSETMAP declares a chunk Length that is not the file's size",
+         reseal_after=False)
+def _(d):
+    # ST 429-9 §7.4 lets Length be absent, and dcpwizard writes none, so the
+    # violation has to be a declared Length that disagrees with the file
+    def wrong_length(m):
+        block = m.group(0)
+        if "<Length>" in block:
+            return re.sub(r"<Length>[^<]*</Length>", "<Length>1</Length>", block)
+        return block.replace("</Chunk>", "  <Length>1</Length>\n        </Chunk>")
+
+    write(am_path(d), re.sub(r"<Chunk>[\s\S]*?</Chunk>", wrong_length,
+                             read(am_path(d)), count=1))
+
+
 @fixture("missing_pkl", ["missing_pkl"], [],
          "PKL file and its ASSETMAP entry removed", reseal_after=False)
 def _(d):
@@ -806,6 +850,51 @@ def _(d):
           "        </MainMarkers>\n")
     s = read(p).replace("        <MainSound>", mm + "        <MainSound>", 1)
     write(p, s)
+
+
+@fixture("reel_edit_rate_mismatch", ["reel_edit_rate_mismatch"], [],
+         "MainMarkers EditRate differs from the reel's picture EditRate")
+def _(d):
+    p = cpl_path(d)
+    s = read(p)
+    existing = re.search(
+        r"<(?:[\w.-]+:)?MainMarkers[\s>][\s\S]*?</(?:[\w.-]+:)?MainMarkers>", s)
+    if existing:
+        block = re.sub(r"<EditRate>[^<]*</EditRate>", "<EditRate>13 1</EditRate>",
+                       existing.group(0), count=1)
+        s = s[:existing.start()] + block + s[existing.end():]
+    else:
+        # FFOC/LFOC are both present, so the marker checks stay quiet and the
+        # rate is the only defect
+        markers = ("        <MainMarkers>\n"
+                   "          <Id>urn:uuid:00000000-0000-0000-0000-0000000000ab</Id>\n"
+                   "          <EditRate>13 1</EditRate>\n"
+                   "          <IntrinsicDuration>48</IntrinsicDuration>\n"
+                   "          <MarkerList>\n"
+                   "            <Marker><Label>FFOC</Label><Offset>1</Offset></Marker>\n"
+                   "            <Marker><Label>LFOC</Label><Offset>47</Offset></Marker>\n"
+                   "          </MarkerList>\n"
+                   "        </MainMarkers>\n")
+        s = s.replace("        <MainSound>", markers + "        <MainSound>", 1)
+    write(p, s)
+
+
+@fixture("composition_metadata_asset_mismatch",
+         ["composition_metadata_asset_mismatch"], [],
+         "CompositionMetadataAsset IntrinsicDuration differs from the reel picture")
+def _(d):
+    p = cpl_path(d)
+
+    def bump(m):
+        return re.sub(
+            r"<(?:[\w.-]+:)?IntrinsicDuration>(\d+)</(?:[\w.-]+:)?IntrinsicDuration>",
+            lambda n: f"<IntrinsicDuration>{int(n.group(1)) + 1}</IntrinsicDuration>",
+            m.group(0), count=1)
+
+    write(p, re.sub(
+        r"<(?:[\w.-]+:)?CompositionMetadataAsset[\s>][\s\S]*?"
+        r"</(?:[\w.-]+:)?CompositionMetadataAsset>",
+        bump, read(p), count=1))
 
 
 @fixture("cross_ref_broken", ["cross_ref_broken"], ["--ov", "@."],
@@ -1114,14 +1203,15 @@ def _(d):
 
 
 @fixture("interop_namespace_wrong", ["interop_namespace_wrong"], [],
-         "Interop-detected DCP (ASSETMAP has no .xml extension) whose subtitle "
-         "document uses the SMPTE DCST namespace; validate_subtitle runs with "
-         "Standard::Interop and flags the non-Interop namespace. The SMPTE "
-         "equivalent is subtitle_wrong_namespace.", reseal_after=False)
+         "Interop package whose subtitle document uses the SMPTE DCST namespace; "
+         "validate_subtitle runs with Standard::Interop and flags the non-Interop "
+         "namespace. The SMPTE equivalent is subtitle_wrong_namespace.",
+         reseal_after=False, src=DOM_INTEROP, baseline="valid/dcp_dom_interop")
 def _(d):
+    # the source package is really Interop. dcpdoctor takes the standard from the
+    # asset map's namespace, so renaming the file to ASSETMAP proves nothing
     add_subtitle(d, dcst(ns=True))  # SMPTE DCST ns, wrong for an Interop package
     reseal(d)
-    os.rename(am_path(d), os.path.join(d, "ASSETMAP"))  # -> detected as Interop
 
 
 @fixture("dcp_not_signed", ["dcp_not_signed"], [],
@@ -1390,12 +1480,19 @@ def main():
         f["fn"](d)
         if f["reseal"]:
             reseal(d)
+        also = list(f["also"])
+        # recorded from the built package rather than declared per fixture: the
+        # DCP-o-matic variants reuse these same definitions, and only they
+        # declare a chunk Length that a resized XML file can contradict
+        if assetmap_length_disagrees(d) and "assetmap_size_mismatch" not in (
+                list(f["codes"]) + also):
+            also.append("assetmap_size_mismatch")
         manifest["fixtures"].append({
             "dir": f"invalid/{name}",
             "package_type": "dcp",
             "is_valid_baseline": False,
             "expected_codes": f["codes"],
-            "also_emits": f["also"],
+            "also_emits": also,
             "flags": f["flags"],
             "baseline": baseline,
             "baseline_flags": f["baseline_flags"],

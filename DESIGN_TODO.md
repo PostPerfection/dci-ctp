@@ -58,6 +58,39 @@ certificate-rule gap list, which had inverted after dcpdoctor gained the six
 codes ClairMeta lacks. A fixture annotation also claimed a code that never fired.
 Re-run `run_corpus.py` and `diff/differential.py` before quoting any number here.
 
+## The five codes dcpdoctor added 2026-08-12
+
+`ALL_CODES` is 86. Four of the five got an isolated fixture on both vendors:
+
+- `assetmap_invalid_name`: SMPTE asset map named `ASSETMAP`, not `ASSETMAP.xml`.
+- `assetmap_size_mismatch`: a declared chunk `Length` that is not the file's
+  size. ST 429-9 §7.4 lets Length be absent and dcpwizard writes none, so the
+  fixture adds a disagreeing one rather than corrupting an existing one.
+- `reel_edit_rate_mismatch`: `MainMarkers` at 13 1 against a 24 1 picture. The
+  marker list is complete, so the marker codes stay quiet and only the rate is
+  wrong.
+- `composition_metadata_asset_mismatch`: the CompositionMetadataAsset's
+  `IntrinsicDuration` one frame off the reel picture's `Duration`.
+
+`unencrypted_dcp_not_signed` has no fixture and cannot have one yet. It fires on
+every unsigned package, the baselines included, and `run_corpus.py` fails any
+expected code that also fires on the fixture's baseline. A signed baseline would
+fix it, and dcpwizard can now produce one (`create --signer-cert/--signer-key`).
+
+`also_emits` is no longer declared per fixture for the asset map size. The DoM
+variants reuse the same mutation functions, and only DoM declares a chunk
+`Length`, so `build_fixture` reads it back off the built package instead:
+whatever resizes an XML file records `assetmap_size_mismatch` on the vendor that
+declares a Length and not on the one that does not. That found the same four
+fixtures a hand scan did (`dom_invalid_uuid`, `dom_pkl_missing_asset_reference`,
+`dom_pkl_size_mismatch`, `dom_xml_schema_violation`) and cannot drift from them.
+
+`interop_namespace_wrong` was failing on both vendors and is fixed. It used to
+make a package "Interop" by renaming `ASSETMAP.xml` to `ASSETMAP`, which stopped
+working when dcpdoctor began taking the standard from the asset map's namespace
+rather than its filename. It now builds on the real Interop package,
+`valid/dcp_dom_interop`.
+
 ## Coverage added 2026-08-12
 
 The six deep certificate-rule codes now have one isolated fixture each, built
@@ -204,12 +237,14 @@ WARNING deliberately, no SMPTE "shall" demands rejection:
 - `mediainfo` is still absent. Only `probe_mediainfo` uses it and no DCP check
   calls that, so it changes nothing.
 
-## Remaining coverage gaps: none
+## Remaining coverage gaps: one
 
-Every code in `ALL_CODES` has a fixture that fires it and a baseline that does
-not, so a full run reports none uncovered. `UNCOVERED_REASONS` still carries
-three entries, for the codes that only the ECL reference packages or the
-`--manifest` compare reach: they are what a run without `CLAIRMETA_DATA` prints.
+85 of the 86 codes in `ALL_CODES` have a fixture that fires them and a baseline
+that does not. The exception is `unencrypted_dcp_not_signed`, which needs a
+signed baseline before any fixture for it can be non-vacuous. `UNCOVERED_REASONS`
+carries it plus three entries for codes that only the ECL reference packages or
+the `--manifest` compare reach: those three are what a run without
+`CLAIRMETA_DATA` prints as uncovered even though a full run resolves them.
 
 `sound_invalid_block_align` was the last gap, recorded as unreachable because
 ffprobe derives block_align from channels x bit-depth. The real reason it never

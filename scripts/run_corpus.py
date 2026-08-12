@@ -36,7 +36,10 @@ ALL_CODES = [
     "cpl_missing_reel", "cpl_invalid_edit_rate", "cpl_invalid_content_kind",
     "mxf_unreadable", "mxf_hash_mismatch", "mxf_invalid_structure",
     "mxf_asset_id_mismatch", "signature_invalid",
-    "dcp_not_signed", "certificate_expired", "certificate_chain_broken",
+    "dcp_not_signed", "unencrypted_dcp_not_signed",
+    "assetmap_invalid_name", "assetmap_size_mismatch",
+    "composition_metadata_asset_mismatch", "reel_edit_rate_mismatch",
+    "certificate_expired", "certificate_chain_broken",
     "certificate_basic_constraints_invalid", "certificate_key_usage_invalid",
     "certificate_key_size_invalid", "certificate_signature_algorithm_invalid",
     "certificate_role_invalid", "certificate_thumbprint_invalid",
@@ -64,6 +67,7 @@ UNCOVERED_REASONS = {
     "mxf_hash_mismatch": "covered via --manifest compare (manifest_size_mismatch); no plain-validate path",
     "certificate_expired": "fires on real expired cert chains (reference packages); no minimal fixture",
     "certificate_signature_algorithm_invalid": "deep cert-rule check; fires on real malformed chains only",
+    "unencrypted_dcp_not_signed": "fires on every unsigned package, baselines included, so no fixture can be non-vacuous until a signed baseline exists",
 }
 
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"
