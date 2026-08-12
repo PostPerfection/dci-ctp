@@ -58,21 +58,14 @@ ALL_CODES = [
 ]
 
 # codes not covered by an isolated `dcpdoctor validate` fixture, with why (honest
-# gaps). The deep certificate-rule codes fire together on real malformed cert
-# chains (see the reference packages) but have no minimal single-code fixture.
+# gaps).
 UNCOVERED_REASONS = {
     "mxf_hash_mismatch": "covered via --manifest compare (manifest_size_mismatch); no plain-validate path",
     "sound_invalid_block_align": "unreachable via validate: ffprobe derives block_align "
         "from channels x bit-depth, so it is always consistent and the inequality never holds "
         "(covered by a mxf.rs unit test)",
     "certificate_expired": "fires on real expired cert chains (reference packages); no minimal fixture",
-    "certificate_basic_constraints_invalid": "deep cert-rule check; fires on real malformed chains only",
-    "certificate_key_usage_invalid": "deep cert-rule check; fires on real malformed chains only",
-    "certificate_key_size_invalid": "deep cert-rule check; fires on real malformed chains only",
     "certificate_signature_algorithm_invalid": "deep cert-rule check; fires on real malformed chains only",
-    "certificate_role_invalid": "deep cert-rule check; fires on real malformed chains only",
-    "certificate_thumbprint_invalid": "deep cert-rule check; fires on real malformed chains only",
-    "certificate_organization_inconsistent": "deep cert-rule check; fires on real malformed chains only",
 }
 
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"

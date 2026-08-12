@@ -11,6 +11,7 @@ run for real), and only the XML is edited.
 """
 
 import base64
+import datetime
 import glob
 import hashlib
 import json
@@ -19,6 +20,11 @@ import re
 import shutil
 import struct
 import sys
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 
 CORPUS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "corpus"))
 BASE = os.path.join(CORPUS, "valid", "dcp_ov")
@@ -366,6 +372,133 @@ def make_font(chars):
     return header + b"cmap" + struct.pack(">III", 0, 28, len(cmap)) + cmap
 
 
+# ── certificate chains ───────────────────────────────────────────────────────
+# ST 430-2 profile chains built with `cryptography`: a self-signed root, an
+# intermediate, and a signer leaf, all sha256WithRSA / 2048-bit / e=65537, all
+# sharing one Organization, each carrying its public-key thumbprint as
+# dnQualifier. cert_rules.rs decides a cert's role by whether it issues another
+# cert in the chain, so the leaf is the only cert that carries a defect.
+
+CERT_ORGANIZATION = ".dci-ctp.corpus"
+CERT_ORGANIZATIONAL_UNIT = ".Signature.dci-ctp.corpus"
+CERT_NOT_BEFORE = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
+CERT_NOT_AFTER = datetime.datetime(2040, 1, 1, tzinfo=datetime.timezone.utc)
+ROOT_COMMON_NAME = ".dci-ctp.root"
+INTERMEDIATE_COMMON_NAME = ".dci-ctp.intermediate"
+# a 430-2 CommonName carries its role token before the first '.', so the CA CNs
+# start with '.' (empty role) and only the signer leaf spells a role out
+LEAF_COMMON_NAME = "CS.Signature.dci-ctp.corpus"
+CA_KEY_USAGE = {"key_cert_sign": True, "crl_sign": True}
+LEAF_KEY_USAGE = {"digital_signature": True, "key_encipherment": True}
+KEY_USAGE_BITS = ("digital_signature", "content_commitment", "key_encipherment",
+                  "data_encipherment", "key_agreement", "key_cert_sign", "crl_sign",
+                  "encipher_only", "decipher_only")
+# well-formed base64 of a 20-byte value that is not any key's SHA-1
+WRONG_THUMBPRINT = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTA="
+
+
+def public_key_thumbprint(public_key):
+    """Base64(SHA-1(subjectPublicKey BIT STRING payload)), the 430-2 dnQualifier.
+    For an RSA key the BIT STRING payload is the DER of RSAPublicKey."""
+    der = public_key.public_bytes(serialization.Encoding.DER,
+                                  serialization.PublicFormat.PKCS1)
+    return base64.b64encode(hashlib.sha1(der).digest()).decode()
+
+
+def certificate_name(common_name, organization, dn_qualifier):
+    return x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization),
+        x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, CERT_ORGANIZATIONAL_UNIT),
+        x509.NameAttribute(NameOID.DN_QUALIFIER, dn_qualifier),
+    ])
+
+
+def issue_certificate(subject, key, issuer, issuer_key, serial, basic_constraints_ca,
+                      key_usage):
+    bits = {name: key_usage.get(name, False) for name in KEY_USAGE_BITS}
+    return (x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(serial)
+            .not_valid_before(CERT_NOT_BEFORE)
+            .not_valid_after(CERT_NOT_AFTER)
+            .add_extension(x509.BasicConstraints(ca=basic_constraints_ca, path_length=None),
+                           critical=True)
+            .add_extension(x509.KeyUsage(**bits), critical=True)
+            .sign(issuer_key, hashes.SHA256())
+            .public_bytes(serialization.Encoding.DER))
+
+
+CERTIFICATE_AUTHORITIES = []
+
+
+def certificate_authorities():
+    """(root der, intermediate der, intermediate name, intermediate key), built
+    once per run and shared by the clean baseline and every cert fixture."""
+    if not CERTIFICATE_AUTHORITIES:
+        root_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        intermediate_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        root_name = certificate_name(ROOT_COMMON_NAME, CERT_ORGANIZATION,
+                                     public_key_thumbprint(root_key.public_key()))
+        intermediate_name = certificate_name(
+            INTERMEDIATE_COMMON_NAME, CERT_ORGANIZATION,
+            public_key_thumbprint(intermediate_key.public_key()))
+        root = issue_certificate(root_name, root_key, root_name, root_key, 1, True,
+                                 CA_KEY_USAGE)
+        intermediate = issue_certificate(intermediate_name, intermediate_key, root_name,
+                                         root_key, 2, True, CA_KEY_USAGE)
+        CERTIFICATE_AUTHORITIES.extend([root, intermediate, intermediate_name,
+                                        intermediate_key])
+    return CERTIFICATE_AUTHORITIES
+
+
+def certificate_chain(*, leaf_key_size=2048, leaf_common_name=LEAF_COMMON_NAME,
+                      leaf_organization=CERT_ORGANIZATION,
+                      leaf_basic_constraints_ca=False, leaf_key_usage=LEAF_KEY_USAGE,
+                      leaf_dn_qualifier=None):
+    """DER chain (leaf, intermediate, root). Every argument left at its default
+    yields a chain that satisfies every rule in cert_rules.rs."""
+    root, intermediate, intermediate_name, intermediate_key = certificate_authorities()
+    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=leaf_key_size)
+    leaf_name = certificate_name(
+        leaf_common_name, leaf_organization,
+        leaf_dn_qualifier or public_key_thumbprint(leaf_key.public_key()))
+    leaf = issue_certificate(leaf_name, leaf_key, intermediate_name, intermediate_key, 3,
+                             leaf_basic_constraints_ca, leaf_key_usage)
+    return [leaf, intermediate, root]
+
+
+def signature_with_chain(ders):
+    """An enveloped ds:Signature carrying `ders` in ds:KeyInfo. The SignedInfo is
+    complete enough for the 429-16 schema, but the digest and SignatureValue are
+    placeholders, so signature_invalid always rides along."""
+    certs = "".join(
+        f"<ds:X509Certificate>{base64.b64encode(der).decode()}</ds:X509Certificate>"
+        for der in ders)
+    return ('<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
+            "<ds:SignedInfo>"
+            '<ds:CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>'
+            '<ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>'
+            '<ds:Reference URI="">'
+            "<ds:Transforms>"
+            '<ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>'
+            "</ds:Transforms>"
+            '<ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>'
+            f'<ds:DigestValue>{base64.b64encode(bytes(32)).decode()}</ds:DigestValue>'
+            "</ds:Reference></ds:SignedInfo>"
+            f"<ds:SignatureValue>{base64.b64encode(bytes(256)).decode()}</ds:SignatureValue>"
+            f"<ds:KeyInfo><ds:X509Data>{certs}</ds:X509Data></ds:KeyInfo>"
+            "</ds:Signature>")
+
+
+def sign_cpl_with_chain(d, ders):
+    p = cpl_path(d)
+    write(p, read(p).replace("</CompositionPlaylist>",
+                             signature_with_chain(ders) + "</CompositionPlaylist>", 1))
+
+
 # ── fixtures ─────────────────────────────────────────────────────────────────
 # each entry: (name, expected_codes, flags, baseline, notes, mutate_fn, reseal)
 FIXTURES = []
@@ -658,6 +791,56 @@ def _(d):
            '</ds:X509Certificate></ds:X509Data></ds:KeyInfo></ds:Signature>')
     s = read(p).replace("</CompositionPlaylist>", sig + "</CompositionPlaylist>", 1)
     write(p, s)
+
+
+CERTIFICATE_BASELINE = "valid/dcp_certificate_chain"
+# the injected signature never verifies, so every cert fixture emits this too
+CERTIFICATE_ALSO_EMITS = ["signature_invalid"]
+
+
+@fixture("certificate_basic_constraints_invalid",
+         ["certificate_basic_constraints_invalid"], [],
+         "Signer leaf carries Basic Constraints cA=TRUE. Every other field of "
+         "the chain is conformant", also=CERTIFICATE_ALSO_EMITS, baseline=CERTIFICATE_BASELINE)
+def _(d):
+    sign_cpl_with_chain(d, certificate_chain(leaf_basic_constraints_ca=True))
+
+
+@fixture("certificate_key_usage_invalid", ["certificate_key_usage_invalid"], [],
+         "Signer leaf Key Usage asserts keyEncipherment but not digitalSignature",
+         also=CERTIFICATE_ALSO_EMITS, baseline=CERTIFICATE_BASELINE)
+def _(d):
+    sign_cpl_with_chain(d, certificate_chain(leaf_key_usage={"key_encipherment": True}))
+
+
+@fixture("certificate_key_size_invalid", ["certificate_key_size_invalid"], [],
+         "Signer leaf holds a 3072-bit RSA key, off the 430-2 profile's 2048",
+         also=CERTIFICATE_ALSO_EMITS, baseline=CERTIFICATE_BASELINE)
+def _(d):
+    sign_cpl_with_chain(d, certificate_chain(leaf_key_size=3072))
+
+
+@fixture("certificate_role_invalid", ["certificate_role_invalid"], [],
+         "Signer leaf CommonName starts with '.', so its role token is empty and "
+         "matches the CA roles instead of being distinct",
+         also=CERTIFICATE_ALSO_EMITS, baseline=CERTIFICATE_BASELINE)
+def _(d):
+    sign_cpl_with_chain(d, certificate_chain(leaf_common_name=".Signature.dci-ctp.corpus"))
+
+
+@fixture("certificate_thumbprint_invalid", ["certificate_thumbprint_invalid"], [],
+         "Signer leaf dnQualifier is a well-formed base64 value that is not the "
+         "SHA-1 of its own public key", also=CERTIFICATE_ALSO_EMITS, baseline=CERTIFICATE_BASELINE)
+def _(d):
+    sign_cpl_with_chain(d, certificate_chain(leaf_dn_qualifier=WRONG_THUMBPRINT))
+
+
+@fixture("certificate_organization_inconsistent",
+         ["certificate_organization_inconsistent"], [],
+         "Signer leaf Organization differs from the two CA certificates'",
+         also=CERTIFICATE_ALSO_EMITS, baseline=CERTIFICATE_BASELINE)
+def _(d):
+    sign_cpl_with_chain(d, certificate_chain(leaf_organization=".other-org.corpus"))
 
 
 @fixture("sound_no_mca", ["sound_invalid_channel_count"], ["--check-mxf"],
@@ -976,6 +1159,16 @@ def build_encrypted_signed_baseline():
     reseal(dest)  # refresh the CPL hash the PKL carries
 
 
+def build_certificate_chain_baseline():
+    """The baseline for the six certificate-rule fixtures: the base DCP signed
+    with a chain that satisfies every rule in cert_rules.rs, so each fixture's
+    code is asserted absent against a chain whose only difference is the defect."""
+    dest = os.path.join(CORPUS, *CERTIFICATE_BASELINE.split("/"))
+    clone(dest)
+    sign_cpl_with_chain(dest, certificate_chain())
+    reseal(dest)
+
+
 def fixup_stereo_order(d):
     """dcpwizard emits the 429-10 MainStereoscopicPicture before MainSound, but
     the 429-16 CPL schema matches the stereo element via xs:any (which must follow
@@ -1005,6 +1198,9 @@ def main():
     # the dcp_not_signed baseline (encrypted + synthetic signatures)
     if os.path.isdir(ENC_SRC):
         build_encrypted_signed_baseline()
+
+    # the certificate-rule baseline (base DCP signed with a conformant chain)
+    build_certificate_chain_baseline()
 
     manifest = {"baselines": [], "fixtures": []}
     # real dcpwizard packages that must validate clean (0 errors). dcp_ov is the

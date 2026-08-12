@@ -63,18 +63,19 @@ DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage: 61 of 80 dcpdoctor codes are exercised (53 by isolated synthetic +
+Coverage: 79 of 80 dcpdoctor codes are exercised (71 by isolated synthetic +
 subcommand fixtures, 8 more by the ClairMeta reference packages). `ALL_CODES` in
 `run_corpus.py` is the full `Code::as_str` enum, so the headline count and the
-uncovered list share one denominator (61 + 19 = 80). Most fixtures run through
+uncovered list share one denominator (79 + 1 = 80). Most fixtures run through
 `dcpdoctor validate`; four codes reachable only through other subcommands (kdm,
 auto-qc) use a `subcommand_fixtures` manifest section. `run_corpus.py` prints the
-full per-code list and why each of the remaining 19 is uncovered: 6 deep
-certificate-rule codes (fire together on real malformed chains, no minimal single
-fixture), `sound_invalid_block_align` (unreachable via validate), and 12 advisory
-quality checks with no isolated fixture yet.
+full per-code list and why the remaining one is uncovered:
+`sound_invalid_block_align`, unreachable via validate because ffprobe derives
+block_align from channels x bit-depth (covered by an mxf.rs unit test).
 
-The picture/J2K and IMF fixtures need grok's `grk_compress` on PATH and a vendored
+The certificate fixtures need the python `cryptography` package, which
+`corpus_gen.py` uses to build their ST 430-2 chains. The picture/J2K and IMF
+fixtures need grok's `grk_compress` on PATH and a vendored
 `asdcp-wrap`, which `build_corpus.sh` builds once from `dcpwizard/extern/asdcplib`
 and caches. dcpwizard/postkit enforce DCI on their own wrap paths, so `asdcp-wrap`
 is the only way to get non-DCI essence into an AS-DCP MXF. If either tool is absent
