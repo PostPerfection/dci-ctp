@@ -192,6 +192,33 @@ else
     echo "  skipping IMF IMP (imfwizard or grk_compress unavailable)"
 fi
 
+# second mastering tool: DCP-o-matic, SMPTE and Interop. The config dir is
+# corpus-local so a build does not depend on the developer's own DoM settings.
+DOM="${DCPOMATIC_CREATE:-$(command -v dcpomatic2_create 2>/dev/null || true)}"
+DOM_CLI="${DCPOMATIC_CLI:-$(command -v dcpomatic2_cli 2>/dev/null || true)}"
+DOMCONFIG="$SRCDIR/domconfig"
+build_dom() {
+    local out="$1" standard="$2" name="$3" film="$SRCDIR/domfilm_$2"
+    rm -rf "$out" "$film"
+    "$DOM" --config "$DOMCONFIG" --standard "$standard" --no-encrypt \
+        -c TST --twok -a 6 -n "$name" "$LEFT" "$WAV51" -o "$film" >/dev/null 2>&1
+    "$DOM_CLI" --config "$DOMCONFIG" "$film" >/dev/null 2>&1
+    local dcp
+    dcp=$(find "$film" -maxdepth 1 -mindepth 1 -type d -name "${name}_*" | head -1)
+    if [[ -n "$dcp" ]]; then
+        mv "$dcp" "$out" && echo "  built $out (DCP-o-matic $standard)"
+    else
+        echo "  DCP-o-matic $standard build failed"
+    fi
+}
+if [[ -x "$DOM" && -x "$DOM_CLI" ]]; then
+    mkdir -p "$DOMCONFIG"
+    build_dom "$VALID/dcp_dom_ov" SMPTE CTPDom
+    build_dom "$VALID/dcp_dom_interop" interop CTPDomIop
+else
+    echo "  skipping DCP-o-matic baselines (dcpomatic2_create/dcpomatic2_cli unavailable)"
+fi
+
 echo "Generating negative fixtures..."
 python3 "$SCRIPT_DIR/corpus_gen.py"
 

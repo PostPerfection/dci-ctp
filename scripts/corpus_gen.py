@@ -35,6 +35,10 @@ ENC_SRC = os.path.join(CORPUS, ".enc_src")  # encrypted (unsigned) DCP, built by
 BITRATE_SRC = os.path.join(CORPUS, ".bitrate_src")  # 3D at full 2K bandwidth, over the DCI peak
 IMF_SRC = os.path.join(CORPUS, "valid", "imf_ov")  # IMF IMP, built by build_corpus.sh
 NONDCI_MXF = os.path.join(CORPUS, ".nondci", "nondci_res.mxf")  # non-DCI J2K wrapped by asdcp-wrap
+# the second mastering tool in the corpus. Every fixture derived from BASE
+# resolves its targets by content, so the same mutation applies to these too.
+DOM_BASE = os.path.join(CORPUS, "valid", "dcp_dom_ov")
+DOM_INTEROP = os.path.join(CORPUS, "valid", "dcp_dom_interop")
 
 # an enveloped ds:Signature is enough for check_dcp_signed (presence-only); its
 # value need not verify. dcpwizard emits unsigned encrypted packages, so the
@@ -301,9 +305,10 @@ def assetmap_id_to_path(d):
 
 
 def reseal(d):
-    """Recompute every PKL asset Hash+Size from the actual files so the only
-    remaining defect is the intended one. Assets whose file is absent are left
-    as-is (their hash check is skipped by dcpdoctor anyway)."""
+    """Recompute every PKL asset Hash+Size, then every ASSETMAP chunk Length,
+    from the actual files so the only remaining defect is the intended one.
+    Assets whose file is absent are left as-is (their hash check is skipped by
+    dcpdoctor anyway)."""
     id2path = assetmap_id_to_path(d)
     pkl = pkl_path(d)
     s = read(pkl)
@@ -327,6 +332,23 @@ def reseal(d):
 
     s = re.sub(r"<Asset>[\s\S]*?</Asset>", fix_asset, s)
     write(pkl, s)
+
+    # DCP-o-matic writes a Length per chunk where dcpwizard writes none, so a
+    # mutation that changes an XML file's size leaves a second defect behind.
+    # Runs after the PKL rewrite so the PKL's own chunk gets its new size.
+    def fix_chunk(m):
+        block = m.group(0)
+        rel = re.search(r"<Path>([^<]+)</Path>", block)
+        if not rel or "<Length>" not in block:
+            return block
+        fp = os.path.join(d, rel.group(1))
+        if not os.path.exists(fp):
+            return block
+        return re.sub(r"<Length>[^<]*</Length>",
+                      f"<Length>{os.path.getsize(fp)}</Length>", block)
+
+    am = am_path(d)
+    write(am, re.sub(r"<Chunk>[\s\S]*?</Chunk>", fix_chunk, read(am)))
 
 
 # ── mutation helpers ─────────────────────────────────────────────────────────
@@ -588,14 +610,14 @@ FIXTURES = []
 
 def fixture(name, codes, flags, notes, reseal_after=True, copy_mxf=False,
             also=None, baseline="valid/dcp_ov", baseline_flags=None, src=BASE,
-            requires=None):
+            requires=None, vendor_portable=True):
     def deco(fn):
         FIXTURES.append({
             "name": name, "codes": codes, "flags": flags, "notes": notes,
             "reseal": reseal_after, "copy_mxf": copy_mxf, "fn": fn,
             "also": also or [], "baseline": baseline,
             "baseline_flags": baseline_flags, "src": src,
-            "requires": requires or [],
+            "requires": requires or [], "vendor_portable": vendor_portable,
         })
         return fn
     return deco
@@ -620,8 +642,9 @@ def _(d):
     s = read(am_path(d))
     # duplicate the sound asset block: its Id now appears twice, every CPL ref
     # still resolves so only DuplicateAssetId fires
+    sound_id = cpl_asset_id(d, "MainSound")
     blocks = re.findall(r"[ \t]*<Asset>[\s\S]*?</Asset>\n", s)
-    snd = next(b for b in blocks if ".mxf" in b and "sound" in b)
+    snd = next(b for b in blocks if sound_id in b)
     s = s.replace(snd, snd + snd, 1)
     write(am_path(d), s)
 
@@ -742,9 +765,10 @@ def _(d):
          "MainPicture EditRate set to 13 1 (non-DCI, strict)")
 def _(d):
     p = cpl_path(d)
-    s = read(p)
-    # first EditRate is the picture's
-    s = s.replace("<EditRate>24 1</EditRate>", "<EditRate>13 1</EditRate>", 1)
+    # DCP-o-matic writes a MainMarkers asset carrying its own EditRate ahead of
+    # MainPicture, so the first EditRate in the reel is not the picture's
+    s = re.sub(r"(<(?:[\w.-]+:)?MainPicture\b[^>]*>[\s\S]*?<(?:[\w.-]+:)?EditRate>)24 1",
+               r"\g<1>13 1", read(p), count=1)
     write(p, s)
 
 
@@ -768,7 +792,10 @@ def _(d):
 
 
 @fixture("markers_bad", ["marker_missing", "marker_invalid"], ["--strict"],
-         "MainMarkers present, required FFMC/LFMC absent, a marker lacks Offset")
+         "MainMarkers present, required FFMC/LFMC absent, a marker lacks Offset",
+         # DCP-o-matic writes no FFMC/LFMC, so its clean package already reports
+         # marker_missing and the same mutation proves nothing there
+         vendor_portable=False)
 def _(d):
     p = cpl_path(d)
     mm = ("        <MainMarkers>\n"
@@ -1342,34 +1369,56 @@ def main():
                  "is INFO, not an error)",
     })
 
+    # DCP-o-matic packages, present only when dcpomatic2_cli was available
+    for path, name, standard in ((DOM_BASE, "valid/dcp_dom_ov", "SMPTE"),
+                                 (DOM_INTEROP, "valid/dcp_dom_interop", "Interop")):
+        if os.path.isdir(path):
+            manifest["baselines"].append({
+                "dir": name, "package_type": "dcp", "is_valid_baseline": True,
+                "flags": ["--strict", "--check-mxf"], "expected_codes": [],
+                "notes": f"real 5.1 {standard} DCP built by DCP-o-matic; validates clean",
+            })
+
     inv = os.path.join(CORPUS, "invalid")
     if os.path.exists(inv):
         shutil.rmtree(inv)
 
-    for f in FIXTURES:
-        if not os.path.isdir(f["src"]):
-            print(f"  SKIP invalid/{f['name']} (source {f['src']} not built)")
-            continue
+    def build_fixture(f, name, src, baseline):
         missing = [r for r in f["requires"] if not os.path.exists(r)]
         if missing:
-            print(f"  SKIP invalid/{f['name']} (missing {', '.join(missing)})")
-            continue
-        d = clone(os.path.join(inv, f["name"]), copy_mxf=f["copy_mxf"], src=f["src"])
+            print(f"  SKIP invalid/{name} (missing {', '.join(missing)})")
+            return
+        d = clone(os.path.join(inv, name), copy_mxf=f["copy_mxf"], src=src)
         f["fn"](d)
         if f["reseal"]:
             reseal(d)
         manifest["fixtures"].append({
-            "dir": f"invalid/{f['name']}",
+            "dir": f"invalid/{name}",
             "package_type": "dcp",
             "is_valid_baseline": False,
             "expected_codes": f["codes"],
             "also_emits": f["also"],
             "flags": f["flags"],
-            "baseline": f["baseline"],
+            "baseline": baseline,
             "baseline_flags": f["baseline_flags"],
             "notes": f["notes"],
         })
-        print(f"  built invalid/{f['name']} -> {', '.join(f['codes'])}")
+        print(f"  built invalid/{name} -> {', '.join(f['codes'])}")
+
+    for f in FIXTURES:
+        if not os.path.isdir(f["src"]):
+            print(f"  SKIP invalid/{f['name']} (source {f['src']} not built)")
+            continue
+        build_fixture(f, f["name"], f["src"], f["baseline"])
+
+    # the same mutations on a DCP-o-matic package, so a code proves it fires on
+    # two mastering tools' output. Fixtures checked against another baseline are
+    # left out: it has no DoM twin, and asserting the code is absent from
+    # dcp_dom_ov instead would pass on a package that could never emit it.
+    if os.path.isdir(DOM_BASE):
+        for f in FIXTURES:
+            if f["vendor_portable"] and f["src"] == BASE and f["baseline"] == "valid/dcp_ov":
+                build_fixture(f, f"dom_{f['name']}", DOM_BASE, "valid/dcp_dom_ov")
 
     # fixtures reachable only through non-validate subcommands. Each runs
     # `dcpdoctor <subcommand> [args]` where an @name arg resolves to a file in

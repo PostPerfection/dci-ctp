@@ -7,30 +7,47 @@ more via the ClairMeta ECL reference packages. `ALL_CODES` is the full
 `Code::as_str` enum, so the headline count and the uncovered list share one
 denominator (81 + 0 = 81). Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
-manifest section (kdm and auto-qc). Baselines are real dcpwizard builds: labeled
-5.1 (`valid/dcp_ov`), stereoscopic 3D 429-10 (`valid/dcp_3d`), Atmos AuxData
-429-18 (`valid/dcp_atmos`), all clean under `--strict --check-mxf`. 106 harness
-checks pass.
+manifest section (kdm and auto-qc). Baselines are real builds, all clean under
+`--strict --check-mxf`: dcpwizard labeled 5.1 (`valid/dcp_ov`), stereoscopic 3D
+429-10 (`valid/dcp_3d`) and Atmos AuxData 429-18 (`valid/dcp_atmos`), plus
+DCP-o-matic SMPTE (`valid/dcp_dom_ov`) and Interop (`valid/dcp_dom_interop`).
+164 harness checks pass over 122 fixtures.
 
-## The corpus only really tests one vendor
+## Two vendors, and what that covers (2026-08-12)
 
-Every baseline and therefore every derived fixture is a dcpwizard build. The 28
-ECL reference packages are the only essence in here that dcpwizard did not
-produce, and they are fixed inputs nobody can inject a defect into. So 81 of 81
-codes covered means every code fires on dcpwizard-shaped input, not that it fires
-on a DCP from any other mastering tool.
+Every fixture built from the shared base and checked against the shared baseline
+is generated a second time from a DCP-o-matic base, so 54 of the 68 fixtures
+assert their code on two mastering tools' output. Both DoM baselines validate
+clean and are in the manifest: `valid/dcp_dom_ov` (SMPTE) and
+`valid/dcp_dom_interop`. 164 harness checks pass over 122 fixtures.
 
-That matters more than a coverage number, because the finding that started this
-work was that dcpdoctor and dcpwizard agreed with each other while both were
-wrong, and four conformance defects fell out the moment an independent
-implementation looked. A corpus built from one lineage can reproduce that failure
-in a quieter way: a check tuned to how dcpwizard writes a field passes here and
-misses the same defect written differently elsewhere.
+Fourteen stay single-vendor, on two grounds. Six need a source DoM cannot author
+or the base does not carry (`aux_data_atmos`, `stereo_framerate`,
+`dcp_not_signed`, `j2k_bitrate_exceeded`, `sound_no_mca`,
+`picture_invalid_frame_rate`). Seven are checked against a baseline with no DoM
+twin: the six certificate fixtures share the signed `valid/dcp_certificate_chain`
+and `manifest_size_mismatch` compares against another fixture. Porting those
+would have meant asserting the code is absent from `dcp_dom_ov`, a package that
+carries no certificates at all and so could never emit it, which passes without
+proving anything. `markers_bad` is the one flag-level opt-out
+(`vendor_portable=False`): DoM writes no FFMC/LFMC, so its clean package already
+reports marker_missing and the same mutation proves nothing there.
 
-Closing it needs packages from two or three other mastering tools run through the
-differential, mutated the same way. Until then, read the coverage number as
-"every code has a working check" and not as "every code catches the defect in the
-wild".
+Two fixture bugs fell out the moment the mutations ran on a package dcpwizard did
+not write, which is what the second vendor was for:
+
+- `duplicate_asset_id` picked the sound asset by matching "sound" in its path, a
+  dcpwizard filename. It resolves through the CPL asset id now.
+- `cpl_invalid_edit_rate` replaced the first EditRate in the CPL on the
+  assumption it was the picture's. DoM writes a MainMarkers asset carrying its
+  own EditRate ahead of MainPicture, so the mutation landed on the marker asset
+  and the code did not fire. It is scoped to MainPicture now. dcpdoctor reported
+  nothing at all about a marker asset at 13 1 against a 24 1 picture, recorded as
+  a gap in its DESIGN_TODO.
+
+A third vendor is still worth having. Two tools agreeing is not conformance, and
+the 28 ECL reference packages remain the only essence here that neither tool
+produced, fixed inputs nobody can inject a defect into.
 
 ## Docs here have gone stale repeatedly
 
@@ -102,12 +119,29 @@ baseline; it is recorded in each fixture's `also_emits`.
 
 ## Differential vs ClairMeta (diff/differential.py): current state
 
-Re-run 2026-08-12 over a fully regenerated corpus, with `asdcp-info`,
-`asdcp-unwrap` and `sox` on PATH so ClairMeta's MXF-essence checks run. Buckets
-over 99 packages (3 baselines, 68 fixtures, 28 ECL references): BOTH_PASS 31,
-BOTH_FAIL 36, DCPDOCTOR_ONLY_FAIL 15, CLAIRMETA_ONLY_FAIL 15, TOOL_ERROR 2.
+Re-run 2026-08-12 over a fully regenerated corpus carrying the DCP-o-matic
+fixtures, with `asdcp-info`, `asdcp-unwrap` and `sox` on PATH so ClairMeta's
+MXF-essence checks run. Buckets over 155 packages (5 baselines, 122 fixtures, 28
+ECL references): BOTH_PASS 35, BOTH_FAIL 70, DCPDOCTOR_ONLY_FAIL 17,
+CLAIRMETA_ONLY_FAIL 28, TOOL_ERROR 5.
 
-dcpdoctor catches 68 of 68 injected defects, ClairMeta 46.
+dcpdoctor catches 122 of 122 injected defects, ClairMeta 96.
+
+- `check_assets_am_size` is a new gap, and only the second vendor could show it.
+  ClairMeta checks each ASSETMAP chunk Length against the file on disk. DoM
+  writes that element and dcpwizard writes none, so no package here had ever
+  carried one and dcpdoctor has no equivalent check. It fires on 4 packages, all
+  fixtures that deliberately skip the reseal, so their stale Length is as
+  intended as their stale PKL hash.
+- `reseal` rewrites those Lengths now, not just the PKL Hash+Size. Without that
+  every size-changing DoM fixture carried a second unintended defect, and
+  `check_assets_am_size` fired on 29 packages rather than 4.
+- TOOL_ERROR is 5: `cpl_missing_reel` and its DoM twin (ClairMeta TypeError on
+  the emptied ReelList), `picture_invalid_frame_rate` (KeyError 'ReelList' on the
+  IMP, a Photon job), and `dom_signature_invalid` / `dom_certificate_chain_broken`,
+  where ClairMeta raises "list indices must be integers" on a ds:Signature
+  injected into a DoM CPL. The dcpwizard twins of those last two parse fine, so
+  it is ClairMeta's reader disagreeing with DoM's CPL shape, not our mutation.
 
 - `check_assets_cpl_metadata` fails 6 packages, down from 64. Every one of the 64
   reported "Id metadata mismatch, CPL claims X but MXF Y" because dcpwizard
@@ -135,10 +169,6 @@ dcpdoctor catches 68 of 68 injected defects, ClairMeta 46.
 - ClairMeta reads sound essence, so it catches `sound_invalid_sample_rate`
   (check_sound_cpl_sampling), `sound_invalid_quantization`
   (check_sound_cpl_quantization) and `sound_no_mca` (check_sound_cpl_channels_odd).
-- TOOL_ERROR 2 is `cpl_missing_reel` (ClairMeta TypeError on the emptied
-  ReelList) and `picture_invalid_frame_rate` (KeyError 'ReelList' on the IMP,
-  which is a Photon job).
-
 Three of the CLAIRMETA_ONLY_FAIL packages are unchanged policy divergences, where
 dcpdoctor flags the same defect at WARNING so the package "passes". Kept at
 WARNING deliberately, no SMPTE "shall" demands rejection:
@@ -163,10 +193,11 @@ WARNING deliberately, no SMPTE "shall" demands rejection:
   - `subtitle_wrong_namespace` (smpte_namespace_wrong) and `interop_namespace_wrong`
     on the subtitle path: ST 428-7 fixes the DCST namespace string, so a wrong
     namespace is non-conformant and unparseable by a compliant player.
-- DCPDOCTOR_ONLY_FAIL 15, where dcpdoctor is the only tool catching the defect:
+- DCPDOCTOR_ONLY_FAIL 17, where dcpdoctor is the only tool catching the defect:
   duplicate_asset_id, missing_cpl, cpl_invalid_content_kind, the six certificate
   fixtures, empty_file_in_package, mxf_unreadable, manifest_size_mismatch,
-  j2k_invalid_component_count, main_sound_config_invalid and j2k_guard_bits.
+  j2k_invalid_component_count, main_sound_config_invalid, j2k_guard_bits, and the
+  DoM twins of duplicate_asset_id and empty_file_in_package.
 - Reference packages run through dcpdoctor with no flags, so it does not read
   their essence while ClairMeta does. Adding `--check-mxf` changes no verdict on
   ECL25, ECL39 or ECL42, so the gaps above are real and not a flags artifact.
@@ -209,8 +240,8 @@ a literal, so a fixture holds against any channel count or bit depth.
 Verified against three packages: a dcpwizard SMPTE build, a DCP-o-matic SMPTE
 build (`cpl_`/`pkl_`/`j2c_`/`pcm_` lowercase names) and a DCP-o-matic Interop
 build (extensionless `ASSETMAP`). All five resolvers return the right file for
-each. The corpus itself is still dcpwizard-only, so this is the prerequisite
-done, not the diversity gap closed.
+each. The DoM packages are corpus baselines now and 54 fixtures derive from them,
+so see the two-vendor section above for where that landed.
 
 One dcpdoctor false positive already fell out of pointing it at DCP-o-matic
 output: ISDCF Doc 1 allows a version number after the content type, so `TST-1`
