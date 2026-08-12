@@ -441,7 +441,7 @@ def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=Tru
     if broken:
         parts.append(f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}"><Text>hi</Broken')
         return "\n".join(parts)
-    text = "".join(f"<Text>{l}</Text>" for l in lines)
+    text = "".join(f"<Text>{line}</Text>" for line in lines)
     parts.append(f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}">{text}</Subtitle>')
     parts.append("  </SubtitleList>\n</SubtitleReel>")
     return "\n".join(parts)
@@ -451,7 +451,7 @@ def dcsubtitle(*, lines=("hi",), font_uri="font.ttf",
                time_in="00:00:01:00", time_out="00:00:02:00"):
     """Build an Interop DCSubtitle document. Interop references its font by URI
     rather than by asset urn, which is how the glyph check resolves one."""
-    text = "".join(f"<Text>{l}</Text>" for l in lines)
+    text = "".join(f"<Text>{line}</Text>" for line in lines)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<DCSubtitle Version="1.0" xmlns="http://www.digicine.com/PROTO-ASDCP-TT-DEF" '
             f'SubtitleID="{SUB_ID}">\n'
@@ -661,7 +661,6 @@ def _(d):
 @fixture("missing_pkl", ["missing_pkl"], [],
          "PKL file and its ASSETMAP entry removed", reseal_after=False)
 def _(d):
-    pk = os.path.basename(pkl_path(d))
     os.remove(pkl_path(d))
     s = read(am_path(d))
     # drop the Asset block that carries PackingList=true
@@ -717,7 +716,6 @@ def _(d):
 @fixture("missing_cpl", ["missing_cpl"], [],
          "CPL file plus its ASSETMAP and PKL entries removed")
 def _(d):
-    cpl = os.path.basename(cpl_path(d))
     cid = re.search(r"<Id>(urn:uuid:[^<]+)</Id>", read(cpl_path(d))).group(1)
     os.remove(cpl_path(d))
     for p in (am_path(d), pkl_path(d)):

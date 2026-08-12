@@ -10,7 +10,14 @@
 # usage: recover_kdm_key.py <kdm.xml> <recipient.key> <keys.json>
 # prints the recovered picture (MDIK) key hex to stdout on success.
 
-import sys, os, re, json, uuid, base64, subprocess, tempfile
+import base64
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import uuid
 
 # st 430-1 table 6: fixed structure id that opens every key block
 STRUCT_ID = bytes([0xf1,0xdc,0x12,0x44,0x60,0x16,0x9a,0x0e,
@@ -24,7 +31,8 @@ def die(msg):
 def rsa_oaep_sha1_decrypt(ciphertext, key_path):
     # dcpwizard wraps with rsa-oaep-mgf1p (OAEP, SHA-1 digest + MGF1-SHA1).
     with tempfile.NamedTemporaryFile(delete=False) as f:
-        f.write(ciphertext); cin = f.name
+        f.write(ciphertext)
+        cin = f.name
     cout = cin + ".out"
     try:
         r = subprocess.run(
@@ -39,8 +47,10 @@ def rsa_oaep_sha1_decrypt(ciphertext, key_path):
         return open(cout, "rb").read()
     finally:
         for p in (cin, cout):
-            try: os.unlink(p)
-            except OSError: pass
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 def parse_block(b):
     if len(b) != BLOCK_LEN:
