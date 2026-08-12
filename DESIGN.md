@@ -152,19 +152,15 @@ reference package lands in DCPDOCTOR_ONLY_FAIL.
 
 ### dcpdoctor coverage gaps ClairMeta exposed
 
-- XSD schema validation: not wired into `validate`. Both dcpwizard baselines are
-  schema-invalid (`check_am_xml`: ASSETMAP missing required `IssueDate`;
-  `check_cpl_xml`: `ContentTitleText` before `IssueDate`, out of SMPTE 429-7/429-9
-  order) and dcpdoctor passes them clean. ClairMeta rejects both. This is the
-  largest gap: any element-order/required-element schema violation slips through.
-- Deep certificate-rule compliance: ClairMeta runs ~40 `check_certif_*` /
-  `check_sign_*` checks (basic constraints, key usage, extensions, RSA validity,
-  organization name, public-key thumbprint, DCI role, issuer/serial coherence)
-  with no dcpdoctor equivalent.
-- Sound essence descriptors: `check_sound_cpl_blockalign`, `_quantization`.
-- CPL label/metadata schema: `check_assets_cpl_labels(_schema)`, `_metadata`.
-- Foreign/empty file hygiene: `check_dcp_foreign_files`, `check_dcp_empty_dir`,
-  `check_*_empty_text_fields`.
+Two ClairMeta ERROR checks have no dcpdoctor equivalent, both hitting 2 packages:
+`check_am_name` and `check_dcp_signed`. `diff/report.md` regenerates the list.
+
+The gaps this section used to list are closed, and the list had gone stale in the
+direction of understating dcpdoctor. XSD schema validation runs (`validate` emits
+`xml_schema_violation` naming the XSD), the six deep certificate-rule codes now
+land in DCPDOCTOR_ONLY_FAIL because ClairMeta does not catch them, and sound
+block-align and quantization are both checked. Re-run the differential before
+trusting any list here.
 
 ### where dcpdoctor is ahead of ClairMeta
 
