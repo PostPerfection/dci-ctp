@@ -907,15 +907,10 @@ def _(d):
 
 
 @fixture("sound_invalid_block_align", ["sound_invalid_block_align"],
-         ["--check-mxf", "--kdm", "%subcmd/kdm_valid.xml",
-          "--recipient-key", "%subcmd/recipient.key"],
+         ["--check-mxf"],
          "Sound MXF WaveAudioDescriptor BlockAlign (local tag 3d0a) byte-patched "
-         "48 -> 36, against 16 channels of 24-bit. The package is the encrypted "
-         "one because only the encrypted path reads BlockAlign out of the "
-         "descriptor: ffprobe omits the field for MXF, so the cleartext path "
-         "reads 0 and skips the check",
-         src=ENC_SRC, baseline="valid/dcp_encrypted_signed", copy_mxf=True,
-         also=["encryption_detected", "kdm_required"])
+         "48 -> 36, against 16 channels of 24-bit",
+         copy_mxf=True)
 def _(d):
     # 3d0a len 0002 value 0030 (48) -> 0024 (36)
     patch_bytes(sound_mxf(d), "3d0a0002" + "0030", "3d0a0002" + "0024")

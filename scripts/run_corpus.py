@@ -69,28 +69,19 @@ UNCOVERED_REASONS = {
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"
 
 
-def resolve_flag(flag, package_dir):
-    """`@name` is a file inside the package being validated, `%name` one inside
-    the corpus. Key material takes the second form: a KDM dropped into a package
-    would be a foreign file in it."""
-    if flag.startswith("@"):
-        return os.path.join(package_dir, flag[1:])
-    if flag.startswith("%"):
-        return os.path.join(CORPUS, flag[1:])
-    return flag
-
-
 def run(dirpath, flags):
     full = os.path.join(CORPUS, dirpath)
-    resolved = [resolve_flag(f, full) for f in flags]
+    # a flag of the form "@name" resolves to a file inside the fixture dir
+    resolved = [os.path.join(full, f[1:]) if f.startswith("@") else f for f in flags]
     cmd = [DCPDOCTOR, "validate", "-v", *resolved, full]
     p = subprocess.run(cmd, capture_output=True, text=True)
     return p.stdout + p.stderr
 
 
 def run_sub(subcommand, dirpath, args):
+    # a flag of the form "@name" resolves to a file inside corpus/<dirpath>
     full = os.path.join(CORPUS, dirpath)
-    resolved = [resolve_flag(a, full) for a in args]
+    resolved = [os.path.join(full, a[1:]) if a.startswith("@") else a for a in args]
     cmd = [DCPDOCTOR, subcommand, "-v", *resolved]
     p = subprocess.run(cmd, capture_output=True, text=True)
     return p.stdout + p.stderr

@@ -154,14 +154,11 @@ three entries, for the codes that only the ECL reference packages or the
 `sound_invalid_block_align` was the last gap, recorded as unreachable because
 ffprobe derives block_align from channels x bit-depth. The real reason it never
 fired is that ffprobe does not report `block_align` for an MXF at all, so the
-cleartext path reads 0 and skips the check. Only `check_sound_essence_mxf` reads
-the field, out of the WaveAudioDescriptor via asdcplib, and it runs on encrypted
-essence with a covering key. The fixture is therefore the encrypted package with
-BlockAlign byte-patched, validated with the corpus KDM and recipient key.
-
-That leaves a real dcpdoctor gap: a cleartext DCP's BlockAlign is never checked,
-because the only prober used on that path cannot see it. Reading the descriptor
-through asdcplib for cleartext PCM too would close it.
+value arrived as 0 and the check skipped itself. That was a dcpdoctor gap, not an
+unreachable code: every cleartext DCP went unchecked on the field. `read_mxf_info`
+now falls back to the WaveAudioDescriptor through asdcplib when ffprobe omits it,
+leaving encrypted essence to `check_sound_essence_mxf` so neither reports twice,
+and the fixture is a plain byte-patch of the 5.1 baseline's sound MXF.
 
 ## Toolchain note
 

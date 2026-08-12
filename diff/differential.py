@@ -109,15 +109,7 @@ CLAIRMETA_TO_CODE = {
 
 
 def run_dcpdoctor(path, flags):
-    # same flag forms run_corpus.py uses: @ is a file in the package, % one in
-    # the corpus. Without the % form a fixture needing a KDM validates keyless
-    # and reads as a defect dcpdoctor missed.
-    resolved = [
-        os.path.join(path, f[1:]) if f.startswith("@")
-        else os.path.join(CORPUS, f[1:]) if f.startswith("%")
-        else f
-        for f in flags
-    ]
+    resolved = [os.path.join(path, f[1:]) if f.startswith("@") else f for f in flags]
     cmd = [DCPDOCTOR, "validate", "-v", *resolved, path]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     out = p.stdout + p.stderr

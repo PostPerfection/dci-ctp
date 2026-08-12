@@ -117,9 +117,6 @@ gen_kdm() {
         --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem" \
         --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3" >/dev/null 2>&1
 }
-# the KDM recipient is the signer cert, so its key decrypts the content keys.
-# fixtures that need dcpdoctor to read encrypted essence reference both.
-cp "$CERTS/signer.key" "$SUBCMD/recipient.key"
 gen_kdm "2020-01-01T00:00:00+00:00" "2021-01-01T00:00:00+00:00" "$SUBCMD/kdm_expired.xml"
 gen_kdm "2090-01-01T00:00:00+00:00" "2091-01-01T00:00:00+00:00" "$SUBCMD/kdm_future.xml"
 gen_kdm "2024-01-01T00:00:00+00:00" "2090-01-01T00:00:00+00:00" "$SUBCMD/kdm_valid.xml"

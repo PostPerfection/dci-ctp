@@ -71,11 +71,6 @@ uncovered list share one denominator (81 + 0 = 81). Most fixtures run through
 auto-qc) use a `subcommand_fixtures` manifest section. `run_corpus.py` prints the
 full per-code list and nothing is uncovered.
 
-A fixture flag of the form `@name` is a file inside the package being validated,
-and `%name` one inside the corpus. `sound_invalid_block_align` uses the second
-form for its KDM and recipient key, which dcpdoctor needs to read the encrypted
-sound essence and which would be foreign files inside the package.
-
 The certificate fixtures need the python `cryptography` package, which
 `corpus_gen.py` uses to build their ST 430-2 chains. The picture/J2K and IMF
 fixtures need grok's `grk_compress` on PATH and a vendored
