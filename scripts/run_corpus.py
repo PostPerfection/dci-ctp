@@ -4,7 +4,10 @@
 For every fixture the manifest declares an expected code, this:
   1. asserts the code fires on the fixture (the note's `code` field, anchored),
   2. asserts the same code is ABSENT on the fixture's valid baseline, so a test
-     can't pass vacuously when the check is unwired.
+     can't pass vacuously when the check is unwired,
+  3. asserts the fixture emits nothing beyond its expected codes, its declared
+     `also_emits`, and whatever its baseline already emits, so a mutation cannot
+     quietly carry a second defect.
 Valid baselines must validate with zero error notes.
 """
 
@@ -100,6 +103,11 @@ def error_notes(output):
     return re.findall(r"\[ERROR\]\s(\S+)\s-", output)
 
 
+def emitted_codes(output):
+    """Every code the run reported, whatever the severity."""
+    return set(re.findall(r"\[[A-Z]+\]\s(\S+)\s-\s", output))
+
+
 def main():
     if not os.access(DCPDOCTOR, os.X_OK):
         print(f"{RED}ERROR: dcpdoctor not found/executable at {DCPDOCTOR}{NC}")
@@ -141,6 +149,17 @@ def main():
                 print(f"  {RED}FAIL{NC} {fx['dir']}: {code} also fires on baseline "
                       f"{fx['baseline']} (vacuous)")
                 failed += 1
+
+        # the mutation has to leave one defect behind, not two. anything the
+        # baseline already emits is not this fixture's doing.
+        declared = set(fx["expected_codes"]) | set(fx.get("also_emits", []))
+        stray = emitted_codes(out) - declared - emitted_codes(base_out)
+        if stray:
+            print(f"  {RED}FAIL{NC} {fx['dir']}: emits {', '.join(sorted(stray))} "
+                  f"beyond its declared codes")
+            failed += 1
+        else:
+            passed += 1
 
     # Subcommand fixtures: codes reachable only through a non-validate subcommand
     # (kdm, auto-qc). auto-qc prints findings as text, so a fixture may carry a

@@ -351,6 +351,56 @@ def reseal(d):
     write(am, re.sub(r"<Chunk>[\s\S]*?</Chunk>", fix_chunk, read(am)))
 
 
+def side_effects(d):
+    """Codes the corpus machinery leaves on a package whatever defect the fixture
+    is for, so no fixture has to declare them by hand. Skipping the reseal leaves
+    a stale chunk Length or PKL record, and the Bv2.1 four-second subtitle lead-in
+    is unreachable in a 48-frame package, so any timed text at all trips it."""
+    codes = set()
+    if assetmap_length_disagrees(d):
+        codes.add("assetmap_size_mismatch")
+    codes |= pkl_records_disagree(d)
+    if carries_timed_text(d):
+        codes.add("subtitle_first_event_early")
+    return codes
+
+
+def carries_timed_text(d):
+    try:
+        cpl = read(cpl_path(d))
+    except FileNotFoundError:
+        return False
+    return re.search(r"<(?:[\w.-]+:)?(?:MainSubtitle|ClosedCaption)\b", cpl) is not None
+
+
+def pkl_records_disagree(d):
+    """The PKL codes a stale Hash or Size would fire, read off the built package."""
+    if not os.path.isfile(am_path(d)):
+        return set()
+    try:
+        pkl = read(pkl_path(d))
+    except FileNotFoundError:
+        return set()
+    id2path = assetmap_id_to_path(d)
+    codes = set()
+    for m in re.finditer(r"<Asset>[\s\S]*?</Asset>", pkl):
+        block = m.group(0)
+        idm = re.search(r"<Id>(urn:uuid:[^<]+)</Id>", block)
+        rel = id2path.get(idm.group(1)) if idm else None
+        if not rel:
+            continue
+        fp = os.path.join(d, rel)
+        if not os.path.exists(fp):
+            continue
+        h = re.search(r"<Hash>([^<]*)</Hash>", block)
+        s = re.search(r"<Size>\s*(\d+)\s*</Size>", block)
+        if h and h.group(1).strip() != sha1_b64(fp):
+            codes.add("pkl_hash_mismatch")
+        if s and int(s.group(1)) != os.path.getsize(fp):
+            codes.add("pkl_size_mismatch")
+    return codes
+
+
 def assetmap_length_disagrees(d):
     """True when a chunk declares a Length the file on disk does not have.
     A mutation that resizes an XML file leaves this behind wherever Length is
@@ -695,7 +745,9 @@ def _(d):
 
 
 @fixture("asset_not_found", ["asset_not_found"], [],
-         "ASSETMAP points the picture chunk at a nonexistent file")
+         "ASSETMAP points the picture chunk at a nonexistent file",
+         # the real picture file stays on disk with nothing referencing it
+         also=["foreign_file_in_package"])
 def _(d):
     picture = os.path.basename(picture_mxf(d))
     s = read(am_path(d))
@@ -795,7 +847,9 @@ def _(d):
 
 
 @fixture("cpl_missing_reel", ["cpl_missing_reel"], [],
-         "CPL ReelList emptied")
+         "CPL ReelList emptied",
+         # 429-7 requires at least one Reel, so an emptied ReelList cannot validate
+         also=["xml_schema_violation"])
 def _(d):
     p = cpl_path(d)
     s = re.sub(r"<ReelList>[\s\S]*</ReelList>", "<ReelList></ReelList>", read(p))
@@ -811,7 +865,9 @@ def _(d):
 
 
 @fixture("cpl_invalid_duration", ["cpl_invalid_duration"], [],
-         "MainPicture and MainSound Duration set to 0")
+         "MainPicture and MainSound Duration set to 0",
+         # the duration the metadata asset and any marker Offset were written against
+         also=["composition_metadata_asset_mismatch", "reel_too_short", "marker_invalid"])
 def _(d):
     p = cpl_path(d)
     write(p, read(p).replace("<Duration>48</Duration>", "<Duration>0</Duration>"))
@@ -829,7 +885,9 @@ def _(d):
 
 
 @fixture("cpl_invalid_edit_rate", ["cpl_invalid_edit_rate"], ["--strict"],
-         "MainPicture EditRate set to 13 1 (non-DCI, strict)")
+         "MainPicture EditRate set to 13 1 (non-DCI, strict)",
+         # the rate the metadata asset and any marker track were written against
+         also=["composition_metadata_asset_mismatch", "reel_edit_rate_mismatch"])
 def _(d):
     p = cpl_path(d)
     # DCP-o-matic writes a MainMarkers asset carrying its own EditRate ahead of
@@ -849,7 +907,9 @@ def _(d):
 
 
 @fixture("encrypted_no_kdm", ["encryption_detected", "kdm_required"], [],
-         "KeyId added to MainPicture, no KDM present")
+         "KeyId added to MainPicture, no KDM present",
+         # an encrypted package must be signed, and the injected KeyId is not schema-clean
+         also=["dcp_not_signed", "xml_schema_violation"])
 def _(d):
     p = cpl_path(d)
     s = read(p).replace("</MainPicture>",
@@ -917,7 +977,9 @@ def _(d):
 
 
 @fixture("supplemental_opl", ["supplemental_opl_missing"], [],
-         "CPL carries an OPL marker (supplemental/version file)")
+         "CPL carries an OPL marker (supplemental/version file)",
+         # the injected supplemental block is not schema-clean
+         also=["xml_schema_violation"])
 def _(d):
     p = cpl_path(d)
     s = read(p).replace("</ReelList>",
@@ -927,7 +989,8 @@ def _(d):
 
 @fixture("supplemental_no_ov", ["supplemental_ov_not_provided"], [],
          "Supplemental CPL references an asset not in this package and no --ov given",
-         also=["supplemental_opl_missing"])
+         # the injected supplemental block is not schema-clean
+         also=["supplemental_opl_missing", "xml_schema_violation"])
 def _(d):
     p = cpl_path(d)
     s = read(p)
@@ -955,7 +1018,9 @@ def _(d):
 
 
 @fixture("stereo_mismatch", ["stereo_mismatch"], [],
-         "MainStereoscopicPicture has LeftEye but no RightEye")
+         "MainStereoscopicPicture has LeftEye but no RightEye",
+         # the stereoscopic block swapped in is not schema-clean
+         also=["xml_schema_violation"])
 def _(d):
     p = cpl_path(d)
     pid = pic_id(d)
@@ -971,7 +1036,9 @@ def _(d):
 
 
 @fixture("signature_invalid", ["signature_invalid"], [],
-         "CPL carries an enveloped ds:Signature with a bogus SignatureValue")
+         "CPL carries an enveloped ds:Signature with a bogus SignatureValue",
+         # the SignedInfo carries placeholder digests, so it does not validate either
+         also=["xml_schema_violation"])
 def _(d):
     p = cpl_path(d)
     sig = ('<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
@@ -984,7 +1051,8 @@ def _(d):
 
 @fixture("certificate_chain_broken", ["certificate_chain_broken"], [],
          "ds:Signature embeds a certificate blob that is valid base64 but not DER",
-         also=["signature_invalid"])
+         # the SignedInfo carries placeholder digests, so it does not validate either
+         also=["signature_invalid", "xml_schema_violation"])
 def _(d):
     p = cpl_path(d)
     badcert = base64.b64encode(b"this is not a certificate").decode()
@@ -1071,7 +1139,9 @@ def _(d):
 
 @fixture("invalid_uuid", ["invalid_uuid"], [],
          "A urn:uuid: token in the CPL is malformed; compliance::check_uuids "
-         "(wired into validate) flags it", reseal_after=False)
+         "(wired into validate) flags it", reseal_after=False,
+         # a malformed uuid also breaks the schema's urn pattern
+         also=["xml_schema_violation"])
 def _(d):
     # corrupt the reel Id into a malformed urn:uuid the uuid check scans
     p = cpl_path(d)
@@ -1103,7 +1173,9 @@ def _(d):
          ["--check-mxf"],
          "Sound MXF QuantizationBits (local tag 3d01) patched to 16 bits, which "
          "DCI does not allow",
-         copy_mxf=True)
+         copy_mxf=True,
+         # block align is derived from the bit depth, so changing one contradicts the other
+         also=["sound_invalid_block_align"])
 def _(d):
     patch_local_tag(sound_mxf(d), "3d01", 4, 16)
 
@@ -1122,7 +1194,9 @@ def _(d):
 
 @fixture("stereo_framerate", ["stereo_mismatch"], ["--check-mxf"],
          "Real 3D DCP whose MainStereoscopicPicture FrameRate is not twice the "
-         "EditRate (ST 429-10); part-1b relationship check", src=THREE_D)
+         "EditRate (ST 429-10); part-1b relationship check", src=THREE_D,
+         # the rate is part of the ISDCF name the file still carries
+         also=["isdcf_naming_violation"])
 def _(d):
     p = cpl_path(d)
     write(p, read(p).replace("<FrameRate>48 1</FrameRate>",
@@ -1143,7 +1217,9 @@ def _(d):
 
 
 @fixture("subtitle_invalid_timing", ["subtitle_invalid_timing"], [],
-         "Subtitle cue TimeIn is not before TimeOut")
+         "Subtitle cue TimeIn is not before TimeOut",
+         # a bad TimeOut makes the cue's duration wrong too
+         also=["subtitle_duration"])
 def _(d):
     add_subtitle(d, dcst(time_in="00:00:02:00", time_out="00:00:01:00"))
 
@@ -1168,7 +1244,9 @@ def _(d):
 
 @fixture("mxf_unreadable", ["mxf_unreadable"], ["--check-mxf"],
          "Picture MXF truncated to non-MXF bytes; PKL resealed to it",
-         copy_mxf=True)
+         copy_mxf=True,
+         # a truncated file is both unreadable and structurally invalid
+         also=["mxf_invalid_structure"])
 def _(d):
     mxf = picture_mxf(d)
     with open(mxf, "wb") as f:
@@ -1238,7 +1316,9 @@ def _(d):
          "1920x1080 non-DCI J2K (grok, no cinema profile) wrapped by the vendored "
          "asdcp-wrap and swapped in for the picture MXF; the MXF descriptor "
          "resolution trips picture_invalid_resolution and the plain codestream "
-         "trips j2k_invalid_profile", copy_mxf=True, requires=[NONDCI_MXF])
+         "trips j2k_invalid_profile", copy_mxf=True, requires=[NONDCI_MXF],
+         # the substituted essence carries its own AssetUUID, not the one the CPL names
+         also=["mxf_asset_id_mismatch"])
 def _(d):
     replace_picture_mxf(d, NONDCI_MXF)
 
@@ -1275,7 +1355,9 @@ def _(d):
 @fixture("reel_too_short", ["reel_too_short"], [],
          "Reel picture/sound Duration cut to 12 frames at 24 fps (0.5s), under the "
          "ST 429-7 one-second minimum. Both tracks are cut together so the "
-         "durations stay coherent and only the length check fires.")
+         "durations stay coherent and only the length check fires.",
+         # the duration the metadata asset and any marker Offset were written against
+         also=["composition_metadata_asset_mismatch", "marker_invalid"])
 def _(d):
     p = cpl_path(d)
     write(p, read(p).replace("<Duration>48</Duration>", "<Duration>12</Duration>"))
@@ -1316,14 +1398,15 @@ def _(d):
          "cmap covering only the ASCII the cue uses, so the star has no glyph. "
          "This exercises the URI form. The SMPTE ST 428-7 form (LoadFont carrying "
          "the font asset urn as element text) resolves through the ASSETMAP.",
-         reseal_after=False)
+         reseal_after=False, src=DOM_INTEROP, baseline="valid/dcp_dom_interop")
 def _(d):
+    # the source package is really Interop. dcpdoctor takes the standard from the
+    # asset map's namespace, so renaming the file to ASSETMAP proves nothing
     with open(os.path.join(d, "font.ttf"), "wb") as f:
         f.write(make_font(["H", "i", " "]))
     add_assetmap_entry(d, FONT_ID, "font.ttf")
     add_timed_text(d, dcsubtitle(lines=("Hi ★",)))
     reseal(d)
-    os.rename(am_path(d), os.path.join(d, "ASSETMAP"))  # -> detected as Interop
 
 
 @fixture("closed_caption_line_count", ["closed_caption_line_count"], [],
@@ -1488,13 +1571,10 @@ def main():
         f["fn"](d)
         if f["reseal"]:
             reseal(d)
-        also = list(f["also"])
-        # recorded from the built package rather than declared per fixture: the
-        # DCP-o-matic variants reuse these same definitions, and only they
-        # declare a chunk Length that a resized XML file can contradict
-        if assetmap_length_disagrees(d) and "assetmap_size_mismatch" not in (
-                list(f["codes"]) + also):
-            also.append("assetmap_size_mismatch")
+        # read off the built package rather than declared per fixture: the
+        # DCP-o-matic variants reuse these same mutation functions and differ in
+        # what they leave behind, so a hand-written list would drift from them
+        also = sorted(set(f["also"]) | (side_effects(d) - set(f["codes"])))
         manifest["fixtures"].append({
             "dir": f"invalid/{name}",
             "package_type": "dcp",

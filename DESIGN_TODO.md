@@ -94,10 +94,42 @@ rather than its filename. It now builds on the real Interop package,
 `MainMarkers` is injected ahead of `MainPicture` now, by one `add_markers`
 helper. Both fixtures that inject it put it before `MainSound`, where the 429-16
 schema rejects it, so each carried an `xml_schema_violation` nobody asked for.
-`run_corpus.py` could not see it: it checks that the expected codes fire, never
-that nothing else does. `markers_bad` still violates the schema, unavoidably,
-since a `Marker` without `Offset` is exactly what it exists to test, so that one
-is recorded in its `also_emits`.
+`markers_bad` still violates the schema, unavoidably, since a `Marker` without
+`Offset` is exactly what it exists to test, so that one is recorded in its
+`also_emits`.
+
+## Fixtures now have to declare everything they emit
+
+`run_corpus.py` used to check only that each expected code fired and was absent
+from the baseline. A fixture could carry any number of unintended extra defects
+and still report PASS, which is how the `MainMarkers` schema violation survived.
+It now also asserts that a fixture emits nothing beyond its expected codes, its
+`also_emits`, and whatever its own baseline emits. That turns `also_emits` from a
+note into an assertion.
+
+Switching it on failed 52 fixtures. What that found:
+
+- `subtitle_glyph_missing` was the second fixture faking Interop by renaming the
+  asset map, the same stale trick `interop_namespace_wrong` used. It was quietly
+  emitting `assetmap_invalid_name` and `smpte_namespace_wrong`. It builds on
+  `valid/dcp_dom_interop` now. Nothing else in the corpus still renames the file.
+- Three side effects belong to the corpus machinery rather than to any one
+  mutation, so `side_effects` reads them off the built package instead of asking
+  every fixture to declare them: a stale chunk `Length` or PKL Hash/Size wherever
+  a fixture skips the reseal, and `subtitle_first_event_early`, which every
+  package trips because the Bv2.1 rule wants the first cue at 4s and these
+  packages are 48 frames long.
+- The remaining 17 are real consequences of their own mutation and are declared
+  with a reason each, for instance `mxf_unreadable` also being
+  `mxf_invalid_structure` because a truncated file is both, and the fixtures that
+  change a duration or edit rate also being
+  `composition_metadata_asset_mismatch` because the metadata asset was written
+  against the old value.
+
+A fixture's `also` is the union across both vendors, since the DoM variants reuse
+the same mutation functions and leave different things behind: DoM packages carry
+markers, so changing a duration invalidates a marker Offset there and not on the
+dcpwizard side.
 
 ## Coverage added 2026-08-12
 
