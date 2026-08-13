@@ -63,13 +63,15 @@ DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage: all 81 dcpdoctor codes are exercised (74 by isolated synthetic +
+Coverage: all 87 dcpdoctor codes are exercised (80 by isolated synthetic +
 subcommand fixtures, 7 more by the ClairMeta reference packages). `ALL_CODES` in
 `run_corpus.py` is the full `Code::as_str` enum, so the headline count and the
-uncovered list share one denominator (81 + 0 = 81). Most fixtures run through
+uncovered list share one denominator (87 + 0 = 87). Most fixtures run through
 `dcpdoctor validate`; four codes reachable only through other subcommands (kdm,
-auto-qc) use a `subcommand_fixtures` manifest section. `run_corpus.py` prints the
-full per-code list and nothing is uncovered.
+auto-qc) use a `subcommand_fixtures` manifest section. A code that reports a
+measurement rather than a verdict is covered by the flag that gates it: the
+fixture and its baseline are the same clean package with the gate on and off.
+`run_corpus.py` prints the full per-code list and nothing is uncovered.
 
 The certificate fixtures need the python `cryptography` package, which
 `corpus_gen.py` uses to build their ST 430-2 chains. The picture/J2K and IMF
@@ -103,25 +105,16 @@ CLAIRMETA_DATA=../../dci-ctp-work/ClairMeta_Data \
 uv run --project diff diff/differential.py
 ```
 
-ClairMeta's MXF-essence checks need `asdcp-info` (asdcplib); absent it they bypass,
-so this diffs XML/structure/signature/cert checks. Photon is never invoked: the one
-IMF IMP in the corpus lands as TOOL_ERROR under ClairMeta, which is a DCP validator.
+ClairMeta's MXF-essence checks need `asdcp-info`, `asdcp-unwrap` and `sox` on PATH;
+absent them they bypass silently, so the diff then covers XML/structure/signature/cert
+only. Photon is never invoked: the one IMF IMP in the corpus lands as TOOL_ERROR under
+ClairMeta, which is a DCP validator.
 
-Full-corpus result (78 packages): BOTH_PASS 35, BOTH_FAIL 29, DCPDOCTOR_ONLY_FAIL 8,
-CLAIRMETA_ONLY_FAIL 3, TOOL_ERROR 3. dcpdoctor caught 47/47 injected fixture defects,
-ClairMeta 31/47. Key findings:
-
-- **DCPDOCTOR_ONLY_FAIL 8**: dcpdoctor is stricter and each is defensible
-  (duplicate_asset_id, missing_cpl, cpl_invalid_content_kind, empty_file_in_package,
-  sound_invalid_quantization, mxf_unreadable, mxf_hash_mismatch, j2k_invalid_component_count).
-- **CLAIRMETA_ONLY_FAIL 3**: dcpdoctor flags the same defect at WARNING deliberately
-  (reel_discontinuity, pkl_missing_asset_reference, bv21_pkl_no_xml_ext); no SMPTE
-  "shall" demands rejection for these.
-- **Escalated to ERROR 2026-07-23**: cpl_mismatched_durations, subtitle_font_missing,
-  and the subtitle namespace codes moved from WARNING to ERROR, each on cited SMPTE
-  "shall" text (see the dcpdoctor code comments).
-- **TOOL_ERROR 3**: ClairMeta crashes on cpl_missing_reel and ECL08, and errors on
-  the IMF IMP (an IMP is a Photon job, not a ClairMeta DCP).
+Full-corpus result (163 packages: 6 baselines, 129 negative fixtures, 28 ECL
+references): BOTH_PASS 38, BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18,
+CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5. dcpdoctor caught 129/129 injected fixture
+defects, ClairMeta 100/129. What sits in each bucket and why is in `DESIGN_TODO.md`
+under "Differential vs ClairMeta", so the numbers live in one place.
 
 The differential runs as an optional, non-blocking CI job (uploads the report as
 an artifact); the ECL packages aren't fetched in CI, so it runs on the baselines

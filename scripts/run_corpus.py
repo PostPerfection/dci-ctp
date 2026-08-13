@@ -48,7 +48,8 @@ ALL_CODES = [
     "certificate_role_invalid", "certificate_thumbprint_invalid",
     "certificate_organization_inconsistent", "smpte_naming_violation",
     "smpte_namespace_wrong", "interop_namespace_wrong", "picture_invalid_resolution",
-    "picture_invalid_frame_rate", "j2k_bitrate_exceeded", "j2k_invalid_profile",
+    "picture_invalid_frame_rate", "j2k_bitrate_exceeded", "picture_bitrate_measured",
+    "j2k_invalid_profile",
     "j2k_invalid_component_count", "j2k_legacy_ffff", "j2k_guard_bits",
     "sound_invalid_sample_rate", "sound_invalid_channel_count",
     "sound_invalid_quantization", "sound_invalid_block_align", "sound_clipping",
@@ -132,7 +133,9 @@ def main():
     print(f"\n{CYAN}== negative fixtures =={NC}")
     for fx in manifest["fixtures"]:
         out = run(fx["dir"], fx["flags"])
-        base_flags = fx.get("baseline_flags") or fx["flags"]
+        # an empty baseline_flags is meaningful: a gated code's baseline is the
+        # same package run with the gate off
+        base_flags = fx["baseline_flags"] if fx.get("baseline_flags") is not None else fx["flags"]
         base_out = run(fx["baseline"], base_flags)
         for code in fx["expected_codes"]:
             fires = code_fires(out, code)

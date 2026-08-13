@@ -52,7 +52,9 @@ CLAIRMETA_TO_CODE = {
     "check_dcp_multiple_am_or_vol": "missing_assetmap",
     "check_assets_am_path": "asset_not_found",
     "check_assets_am_uuid": "duplicate_asset_id",
-    "check_assets_am_size": None,
+    "check_assets_am_size": "assetmap_size_mismatch",
+    "check_am_name": "assetmap_invalid_name",
+    "check_dcp_signed": "dcp_not_signed",
     "check_assets_pkl_hash": "pkl_hash_mismatch",
     "check_assets_pkl_size": "pkl_size_mismatch",
     "check_assets_pkl_referenced_by_assetamp": "pkl_missing_asset_reference",
@@ -84,6 +86,8 @@ CLAIRMETA_TO_CODE = {
     "check_subtitle_dcp_format": "smpte_namespace_wrong",
     "check_subtitle_cpl_st_timing": "subtitle_invalid_timing",
     "check_subtitle_cpl_font": "subtitle_font_missing",
+    "check_subtitle_cpl_font_glyph": "subtitle_glyph_missing",
+    "check_subtitle_cpl_entry_point": "subtitle_first_event_early",
     "check_subtitle_cpl_uuid": "missing_required_element",
     "check_link_ov_asset": "supplemental_ov_not_provided",
     "check_link_ov_coherence": "supplemental_ov_not_provided",
@@ -100,7 +104,6 @@ CLAIRMETA_TO_CODE = {
     # checks with no dcpdoctor equivalent (coverage gaps), grouped in report:
     "check_certif_extensions": None,
     "check_certif_fields": None,
-    "check_dcp_signed": None,
     "check_dcp_empty_dir": None,
     "check_cpl_empty_text_fields": None,
     "check_assets_cpl_labels": None,
@@ -209,6 +212,10 @@ def main():
     # --- negative fixtures: attribute ClairMeta's catch by diffing vs baseline ---
     baseline_cm = {}  # cache ClairMeta failed-check set per baseline dir
     for fx in manifest["fixtures"]:
+        # a fixture under valid/ carries no injected defect: it asserts a
+        # flag-gated code on a clean package, so there is nothing to attribute
+        if fx["dir"].startswith("valid/"):
+            continue
         path = os.path.join(CORPUS, fx["dir"])
         dd = run_dcpdoctor(path, fx["flags"])
         cm = run_clairmeta(path)
@@ -292,7 +299,7 @@ def main():
         "counts": counts,
         "total": sum(counts.values()),
         "reference_ran": ref_ran,
-        "photon_imf": "not_run: corpus contains no IMF packages",
+        "photon_imf": "not_run: the corpus IMP lands as TOOL_ERROR under ClairMeta",
         "fixture_defect_coverage": {
             "total": len(fixtures),
             "dcpdoctor_caught": len(dd_caught),

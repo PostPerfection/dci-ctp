@@ -1,32 +1,35 @@
 # Planned
 
 The per-error-code corpus (`scripts/build_corpus.sh` + `run_corpus.py`) proves
-all 86 dcpdoctor codes fire non-vacuously (each code is asserted absent on the
-fixture's valid baseline): 79 via isolated synthetic + subcommand fixtures and 7
+all 87 dcpdoctor codes fire non-vacuously (each code is asserted absent on the
+fixture's valid baseline): 80 via isolated synthetic + subcommand fixtures and 7
 more via the ClairMeta ECL reference packages. `ALL_CODES` is the full
 `Code::as_str` enum, so the headline count and the uncovered list share one
-denominator (86 + 0 = 86). Most fixtures run through `dcpdoctor validate`; four
+denominator (87 + 0 = 87). Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
 manifest section (kdm and auto-qc). Baselines are real builds, all clean under
 `--strict --check-mxf`: dcpwizard labeled 5.1 (`valid/dcp_ov`), stereoscopic 3D
 429-10 (`valid/dcp_3d`), Atmos AuxData 429-18 (`valid/dcp_atmos`) and the signed
 package (`valid/dcp_signed`), plus DCP-o-matic SMPTE (`valid/dcp_dom_ov`) and
-Interop (`valid/dcp_dom_interop`). 301 harness checks pass over 129 fixtures.
+Interop (`valid/dcp_dom_interop`). 303 harness checks pass over 130 fixtures.
 
 ## Two vendors, and what that covers (2026-08-12)
 
 Every fixture built from the shared base and checked against the shared baseline
-is generated a second time from a DCP-o-matic base, so 54 of the 68 fixtures
+is generated a second time from a DCP-o-matic base, so 56 of the 73 fixtures
 assert their code on two mastering tools' output. Both DoM baselines validate
 clean and are in the manifest: `valid/dcp_dom_ov` (SMPTE) and
-`valid/dcp_dom_interop`. 301 harness checks pass over 129 fixtures.
+`valid/dcp_dom_interop`. 303 harness checks pass over 130 fixtures.
 
-Fourteen stay single-vendor, on two grounds. Six need a source DoM cannot author
-or the base does not carry (`aux_data_atmos`, `stereo_framerate`,
+Seventeen stay single-vendor, on three grounds. Six need a source DoM cannot
+author or the base does not carry (`aux_data_atmos`, `stereo_framerate`,
 `dcp_not_signed`, `j2k_bitrate_exceeded`, `sound_no_mca`,
-`picture_invalid_frame_rate`). Seven are checked against a baseline with no DoM
-twin: the six certificate fixtures share the signed `valid/dcp_certificate_chain`
-and `manifest_size_mismatch` compares against another fixture. Porting those
+`picture_invalid_frame_rate`). Two build on the DoM Interop package, which
+dcpwizard cannot author (`interop_namespace_wrong`, `subtitle_glyph_missing`).
+Eight are checked against a baseline with no DoM twin: the six certificate
+fixtures share the signed `valid/dcp_certificate_chain`,
+`unencrypted_dcp_not_signed` needs `valid/dcp_signed` and
+`manifest_size_mismatch` compares against another fixture. Porting those
 would have meant asserting the code is absent from `dcp_dom_ov`, a package that
 carries no certificates at all and so could never emit it, which passes without
 proving anything. `markers_bad` is the one flag-level opt-out
@@ -45,9 +48,10 @@ not write, which is what the second vendor was for:
   nothing at all about a marker asset at 13 1 against a 24 1 picture, recorded as
   a gap in its DESIGN_TODO.
 
-A third vendor is still worth having. Two tools agreeing is not conformance, and
-the 28 ECL reference packages remain the only essence here that neither tool
-produced, fixed inputs nobody can inject a defect into.
+A third vendor was considered and declined on 2026-08-12. Every candidate that
+still runs headless is abandoned, and the 28 ECL reference packages already
+provide essence neither tool produced, fixed inputs nobody can inject a defect
+into. Revisit only if a maintained independent mastering tool appears.
 
 ## Docs here have gone stale repeatedly
 
@@ -60,7 +64,7 @@ Re-run `run_corpus.py` and `diff/differential.py` before quoting any number here
 
 ## The five codes dcpdoctor added 2026-08-12
 
-`ALL_CODES` is 86. Four of the five got an isolated fixture on both vendors:
+Four of the five got an isolated fixture on both vendors:
 
 - `assetmap_invalid_name`: SMPTE asset map named `ASSETMAP`, not `ASSETMAP.xml`.
 - `assetmap_size_mismatch`: a declared chunk `Length` that is not the file's
@@ -76,8 +80,7 @@ Re-run `run_corpus.py` and `diff/differential.py` before quoting any number here
 every unsigned package, the baselines included, and `run_corpus.py` fails any
 expected code that also fires on the fixture's baseline, so it needed a baseline
 that does not fire it. `build_corpus.sh` signs one package with the chain it
-already generates, and the fixture strips both signatures back off. Coverage is
-86/86.
+already generates, and the fixture strips both signatures back off.
 
 Building it found a real defect first. Every leaf certificate postkit generated
 carried no Basic Constraints and no Key Usage, which ST 430-2 requires, because
@@ -206,7 +209,9 @@ Re-run 2026-08-12 over a corpus carrying the signed baseline, the five codes
 dcpdoctor added and the declared-side-effect cleanup. `asdcp-info`,
 `asdcp-unwrap` and `sox` on PATH so ClairMeta's MXF-essence checks run. Buckets
 over 163 packages (6 baselines, 129 fixtures, 28 ECL references): BOTH_PASS 38,
-BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18, CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5.
+BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18, CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5. The
+`picture_bitrate_measured` fixture is the 130th and is not a differential
+subject: it injects no defect, so there is no catch to attribute.
 
 dcpdoctor catches 129 of 129 injected defects, ClairMeta 100.
 
@@ -285,9 +290,10 @@ WARNING deliberately, no SMPTE "shall" demands rejection:
   - `subtitle_wrong_namespace` (smpte_namespace_wrong) and `interop_namespace_wrong`
     on the subtitle path: ST 428-7 fixes the DCST namespace string, so a wrong
     namespace is non-conformant and unparseable by a compliant player.
-- DCPDOCTOR_ONLY_FAIL 17, where dcpdoctor is the only tool catching the defect:
-  duplicate_asset_id, missing_cpl, cpl_invalid_content_kind, the six certificate
-  fixtures, empty_file_in_package, mxf_unreadable, manifest_size_mismatch,
+- DCPDOCTOR_ONLY_FAIL 18, where dcpdoctor is the only tool catching the defect:
+  duplicate_asset_id, missing_cpl, cpl_invalid_content_kind,
+  composition_metadata_asset_mismatch, the six certificate fixtures,
+  empty_file_in_package, mxf_unreadable, manifest_size_mismatch,
   j2k_invalid_component_count, main_sound_config_invalid, j2k_guard_bits, and the
   DoM twins of duplicate_asset_id and empty_file_in_package.
 - Reference packages run through dcpdoctor with no flags, so it does not read
@@ -298,7 +304,7 @@ WARNING deliberately, no SMPTE "shall" demands rejection:
 
 ## Remaining coverage gaps: none
 
-All 86 codes in `ALL_CODES` have a fixture that fires them and a baseline that
+All 87 codes in `ALL_CODES` have a fixture that fires them and a baseline that
 does not. `UNCOVERED_REASONS` still carries three entries, for codes only the ECL
 reference packages or the `--manifest` compare reach: those are what a run
 without `CLAIRMETA_DATA` prints as uncovered even though a full run resolves

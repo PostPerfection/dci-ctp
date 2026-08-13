@@ -1635,6 +1635,25 @@ def main():
             if f["vendor_portable"] and f["src"] == BASE and f["baseline"] == "valid/dcp_ov":
                 build_fixture(f, f"dom_{f['name']}", DOM_BASE, "valid/dcp_dom_ov")
 
+    # picture_bitrate_measured is INFO and needs no defect: any IMP picture track
+    # read under the picture-details gate reports its measured peak. So the
+    # fixture is the clean IMP with the gate on and its baseline is the same IMP
+    # with the gate off, which asserts the gate rather than a mutation.
+    if os.path.isdir(IMF_SRC):
+        manifest["fixtures"].append({
+            "dir": "valid/imf_ov",
+            "package_type": "imf",
+            "is_valid_baseline": False,
+            "expected_codes": ["picture_bitrate_measured"],
+            "also_emits": [],
+            "flags": ["--check-mxf"],
+            "baseline": "valid/imf_ov",
+            "baseline_flags": [],
+            "notes": "IMF IMP picture track measured through the AS-02 reader; the "
+                     "code is INFO with no pass/fail, so the assertion is that "
+                     "--check-mxf turns the measurement on and no flags leaves it off",
+        })
+
     # fixtures reachable only through non-validate subcommands. Each runs
     # `dcpdoctor <subcommand> [args]` where an @name arg resolves to a file in
     # corpus/subcmd. auto-qc prints findings as text (not Codes), so those carry

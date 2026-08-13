@@ -30,9 +30,10 @@ The markers, cross-reference, and encryption cases use synthetic fixtures built 
 real J2K/PCM) once and clone+mutate it per error code into `corpus/invalid/*`,
 resealing PKL hashes so only the intended code fires. `scripts/run_corpus.py`
 reads `corpus/manifest.json` and, for each fixture, asserts the code fires and is
-absent on its valid baseline (`corpus/valid/dcp_ov`, or `dcp_mca` for the MCA
-case). Isolation: no unrelated ERROR-severity note leaks in any fixture. The
-corpus is generated, never committed (gitignored).
+absent on its valid baseline (`corpus/valid/dcp_ov` for most, or the baseline the
+fixture names). Isolation: a fixture may emit nothing beyond its expected codes,
+its `also_emits` and whatever its baseline already emits. The corpus is
+generated, never committed (gitignored).
 
 `corpus/manifest.json` schema:
 - `baselines[]`: `{dir, package_type, is_valid_baseline, flags, expected_codes}`
@@ -44,6 +45,16 @@ A flag of the form `@name` in a fixture's `flags` resolves to a file inside the
 fixture dir (used for `--manifest`). `baseline_flags` lets the non-vacuity check
 run different flags on the baseline (e.g. a correct vs wrong size manifest).
 
+A code that carries no pass/fail and fires on any conformant package gets its
+coverage from the flag that gates it rather than from a mutation: the fixture and
+its baseline are the same clean package, run with the gate on and with it off. An
+empty `baseline_flags` means exactly that, so it is distinct from an absent one
+(which reuses the fixture's flags). `picture_bitrate_measured` is the case:
+`--check-mxf` measures an IMP picture track's peak and average through the AS-02
+reader and reports them as INFO, since no IMF specification sets a peak. Such a
+fixture points at `corpus/valid/*` and injects nothing, so `differential.py`
+skips it: there is no defect for ClairMeta to catch or miss.
+
 ## Reference packages (ClairMeta)
 
 `scripts/scan_reference.py` records dcpdoctor's observed verdict for each
@@ -52,9 +63,9 @@ env). These become the shared corpus for differential testing against
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 
-## Coverage: 81 of 81 codes
+## Coverage: 87 of 87 codes
 
-74 codes have isolated synthetic or subcommand fixtures, and 7 more come from
+80 codes have isolated synthetic or subcommand fixtures, and 7 more come from
 the ClairMeta reference packages. `run_corpus.py` prints the live list and a reason
 per gap, and there are no gaps left.
 
@@ -120,7 +131,8 @@ optional non-blocking CI job (`encryption`) in a few seconds.
 whole corpus and classifies every package. ClairMeta's MXF-essence checks need
 `asdcp-info`, `asdcp-unwrap` and `sox` on PATH and bypass silently without them,
 so `diff/README.md` covers getting them there. IMF-vs-Photon is not run: the
-corpus has no IMF packages. Writes `diff/report.{json,md}` (gitignored,
+corpus's one IMP lands as TOOL_ERROR under ClairMeta, which is a DCP validator.
+Writes `diff/report.{json,md}` (gitignored,
 regenerated). Run:
 
 ```bash
@@ -152,8 +164,14 @@ reference package lands in DCPDOCTOR_ONLY_FAIL.
 
 ### dcpdoctor coverage gaps ClairMeta exposed
 
-Two ClairMeta ERROR checks have no dcpdoctor equivalent, both hitting 2 packages:
-`check_am_name` and `check_dcp_signed`. `diff/report.md` regenerates the list.
+None left. Every ClairMeta ERROR check that fires anywhere in the corpus has a
+dcpdoctor code firing on the same packages. The five the report listed last were
+`check_am_name`, `check_assets_am_size`, `check_dcp_signed`,
+`check_subtitle_cpl_entry_point` and `check_subtitle_cpl_font_glyph`, against
+`assetmap_invalid_name`, `assetmap_size_mismatch`, `dcp_not_signed`,
+`subtitle_first_event_early` and `subtitle_glyph_missing`: the check-to-code table
+in `differential.py` had gone stale as dcpdoctor gained those codes.
+`diff/report.md` regenerates the list.
 
 The gaps this section used to list are closed, and the list had gone stale in the
 direction of understating dcpdoctor. XSD schema validation runs (`validate` emits
@@ -171,7 +189,7 @@ deep certificate rules, package hygiene (foreign, empty and non-ASCII files),
 external-manifest compare, the J2K codestream checks, and the structural MXF
 checks.
 
-ClairMeta also crashes internally on some malformed CPLs. The 2 TOOL_ERROR are the
-reel-less-CPL fixture and the IMF IMP, which is a Photon job rather than a
-ClairMeta one. The 2 reference BOTH_FAIL (ECL31/ECL32, non-coherent encrypted) are
-real agreement: ClairMeta flags `check_cpl_reel_coherence`.
+ClairMeta also crashes internally on some malformed CPLs, which is what the
+TOOL_ERROR bucket holds; DESIGN_TODO names the current ones. The 2 reference
+BOTH_FAIL (ECL31/ECL32, non-coherent encrypted) are real agreement: ClairMeta
+flags `check_cpl_reel_coherence`.
