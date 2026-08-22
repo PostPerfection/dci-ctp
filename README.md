@@ -53,25 +53,36 @@ Not covered by this table: J2K profile/bitrate, UUID-format, VOLINDEX/MXF-extens
 `scripts/build_corpus.sh` builds the real DCPs dcpwizard produces (labeled 5.1
 base, stereoscopic 3D, Atmos AuxData, mono, and an encrypted unsigned build) plus
 non-DCI J2K essence and an IMF IMP, then `scripts/corpus_gen.py` clones and mutates
-them once per error code, resealing PKL hashes so only the intended code fires.
+them once per error code, resealing the CPL and PKL hashes so only the intended
+code fires. Two baselines are synthesised rather than built: `valid/dcp_signed`'s
+certificate twin `valid/dcp_certificate_chain`, and `valid/dcp_all_markers`, the
+base package carrying every marker `--strict` names so a fixture that drops one
+has something to be measured against.
 `scripts/run_corpus.py` reads `corpus/manifest.json` and asserts each fixture's code
 fires AND is absent on the valid baseline (so a test can't pass when the check is
-unwired). This is the trust-critical proof that each check works and none is dead.
+unwired), and that the fixture emits nothing beyond its expected codes, its
+declared `also_emits` and whatever its baseline already emits. This is the
+trust-critical proof that each check works and none is dead.
 
 ```bash
 DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage: all 87 dcpdoctor codes are exercised (80 by isolated synthetic +
-subcommand fixtures, 7 more by the ClairMeta reference packages). `ALL_CODES` in
-`run_corpus.py` is the full `Code::as_str` enum, so the headline count and the
-uncovered list share one denominator (87 + 0 = 87). Most fixtures run through
-`dcpdoctor validate`; four codes reachable only through other subcommands (kdm,
-auto-qc) use a `subcommand_fixtures` manifest section. A code that reports a
-measurement rather than a verdict is covered by the flag that gates it: the
-fixture and its baseline are the same clean package with the gate on and off.
-`run_corpus.py` prints the full per-code list and nothing is uncovered.
+Coverage against dcpdoctor 0.5.0: 100 of 119 codes are exercised (89 by isolated
+synthetic + subcommand fixtures, 11 more by the ClairMeta reference packages).
+`ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
+count and the uncovered list share one denominator (100 + 19 = 119). The 19
+uncovered each carry a reason in `UNCOVERED_REASONS`, which `run_corpus.py`
+prints: some ride along on another fixture and are declared in its `also_emits`
+(`cpl_pkl_hash_mismatch`, `j2k_parameters_vary`, `cpl_active_area_invalid`,
+`j2k_missing_tlm`), the rest need essence or a document shape the corpus does not
+build yet (4K stereoscopic, MXF-wrapped timed text, multi-reel subtitle layouts,
+crafted KDMs). Most fixtures run through `dcpdoctor validate`; four codes
+reachable only through other subcommands (kdm, auto-qc) use a
+`subcommand_fixtures` manifest section. A code that reports a measurement rather
+than a verdict is covered by the flag that gates it: the fixture and its baseline
+are the same clean package with the gate on and off.
 
 The certificate fixtures need the python `cryptography` package, which
 `corpus_gen.py` uses to build their ST 430-2 chains. The picture/J2K and IMF
@@ -110,10 +121,10 @@ absent them they bypass silently, so the diff then covers XML/structure/signatur
 only. Photon is never invoked: the one IMF IMP in the corpus lands as TOOL_ERROR under
 ClairMeta, which is a DCP validator.
 
-Full-corpus result (163 packages: 6 baselines, 129 negative fixtures, 28 ECL
-references): BOTH_PASS 38, BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18,
-CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5. dcpdoctor caught 129/129 injected fixture
-defects, ClairMeta 100/129. What sits in each bucket and why is in `DESIGN_TODO.md`
+Full-corpus result (180 packages: 7 baselines, 145 negative fixtures, 28 ECL
+references): BOTH_PASS 39, BOTH_FAIL 84, DCPDOCTOR_ONLY_FAIL 21,
+CLAIRMETA_ONLY_FAIL 31, TOOL_ERROR 5. dcpdoctor caught 145/145 injected fixture
+defects, ClairMeta 113/145. What sits in each bucket and why is in `DESIGN_TODO.md`
 under "Differential vs ClairMeta", so the numbers live in one place.
 
 The differential runs as an optional, non-blocking CI job (uploads the report as

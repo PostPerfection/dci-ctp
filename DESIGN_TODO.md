@@ -1,40 +1,45 @@
 # Planned
 
 The per-error-code corpus (`scripts/build_corpus.sh` + `run_corpus.py`) proves
-all 87 dcpdoctor codes fire non-vacuously (each code is asserted absent on the
-fixture's valid baseline): 80 via isolated synthetic + subcommand fixtures and 7
-more via the ClairMeta ECL reference packages. `ALL_CODES` is the full
-`Code::as_str` enum, so the headline count and the uncovered list share one
-denominator (87 + 0 = 87). Most fixtures run through `dcpdoctor validate`; four
+100 of dcpdoctor 0.5.0's 119 codes fire non-vacuously (each code is asserted
+absent on the fixture's valid baseline): 89 via isolated synthetic + subcommand
+fixtures and 11 more via the ClairMeta ECL reference packages. `ALL_CODES` is the
+full `Code::as_str` enum, so the headline count and the uncovered list share one
+denominator (100 + 19 = 119), and every uncovered code carries a reason in
+`UNCOVERED_REASONS`. Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
-manifest section (kdm and auto-qc). Baselines are real builds, all clean under
+manifest section (kdm and auto-qc). Baselines are all clean under
 `--strict --check-mxf`: dcpwizard labeled 5.1 (`valid/dcp_ov`), stereoscopic 3D
 429-10 (`valid/dcp_3d`), Atmos AuxData 429-18 (`valid/dcp_atmos`) and the signed
 package (`valid/dcp_signed`), plus DCP-o-matic SMPTE (`valid/dcp_dom_ov`) and
-Interop (`valid/dcp_dom_interop`). 303 harness checks pass over 130 fixtures.
+Interop (`valid/dcp_dom_interop`), and the synthesised `valid/dcp_all_markers`.
+338 harness checks pass over 147 fixtures, 7 baselines, 4 subcommand fixtures and
+28 reference packages.
 
 ## Two vendors, and what that covers (2026-08-12)
 
 Every fixture built from the shared base and checked against the shared baseline
-is generated a second time from a DCP-o-matic base, so 56 of the 73 fixtures
-assert their code on two mastering tools' output. Both DoM baselines validate
-clean and are in the manifest: `valid/dcp_dom_ov` (SMPTE) and
-`valid/dcp_dom_interop`. 303 harness checks pass over 130 fixtures.
+is generated a second time from a DCP-o-matic base, so 128 of the 147 fixtures
+(64 pairs) assert their code on two mastering tools' output. Both DoM baselines
+validate clean and are in the manifest: `valid/dcp_dom_ov` (SMPTE) and
+`valid/dcp_dom_interop`. 338 harness checks pass over 147 fixtures.
 
 Seventeen stay single-vendor, on three grounds. Six need a source DoM cannot
 author or the base does not carry (`aux_data_atmos`, `stereo_framerate`,
 `dcp_not_signed`, `j2k_bitrate_exceeded`, `sound_no_mca`,
 `picture_invalid_frame_rate`). Two build on the DoM Interop package, which
 dcpwizard cannot author (`interop_namespace_wrong`, `subtitle_glyph_missing`).
-Eight are checked against a baseline with no DoM twin: the six certificate
+Nine are checked against a baseline with no DoM twin: the six certificate
 fixtures share the signed `valid/dcp_certificate_chain`,
-`unencrypted_dcp_not_signed` needs `valid/dcp_signed` and
-`manifest_size_mismatch` compares against another fixture. Porting those
+`unencrypted_dcp_not_signed` needs `valid/dcp_signed`,
+`manifest_size_mismatch` compares against another fixture, and `markers_bad`
+needs `valid/dcp_all_markers`. Porting those
 would have meant asserting the code is absent from `dcp_dom_ov`, a package that
 carries no certificates at all and so could never emit it, which passes without
-proving anything. `markers_bad` is the one flag-level opt-out
-(`vendor_portable=False`): DoM writes no FFMC/LFMC, so its clean package already
-reports marker_missing and the same mutation proves nothing there.
+proving anything. `markers_bad` is also the one flag-level opt-out
+(`vendor_portable=False`): under `--strict` dcpdoctor reports every recommended
+marker any CPL leaves out, and both vendors' clean packages leave several out, so
+the fixture only means something against the all-markers baseline.
 
 Two fixture bugs fell out the moment the mutations ran on a package dcpwizard did
 not write, which is what the second vendor was for:
@@ -205,21 +210,47 @@ baseline; it is recorded in each fixture's `also_emits`.
 
 ## Differential vs ClairMeta (diff/differential.py): current state
 
-Re-run 2026-08-12 over a corpus carrying the signed baseline, the five codes
-dcpdoctor added and the declared-side-effect cleanup. `asdcp-info`,
+Re-run 2026-08-22 over the corpus brought up to dcpdoctor 0.5.0: conformant
+injected timed-text documents, CPL hashes resealed alongside the PKL's, and nine
+fixtures added for codes that used to ride along on another. `asdcp-info`,
 `asdcp-unwrap` and `sox` on PATH so ClairMeta's MXF-essence checks run. Buckets
-over 163 packages (6 baselines, 129 fixtures, 28 ECL references): BOTH_PASS 38,
-BOTH_FAIL 77, DCPDOCTOR_ONLY_FAIL 18, CLAIRMETA_ONLY_FAIL 25, TOOL_ERROR 5. The
-`picture_bitrate_measured` fixture is the 130th and is not a differential
-subject: it injects no defect, so there is no catch to attribute.
+over 180 packages (7 baselines, 145 fixtures, 28 ECL references): BOTH_PASS 39,
+BOTH_FAIL 84, DCPDOCTOR_ONLY_FAIL 21, CLAIRMETA_ONLY_FAIL 31, TOOL_ERROR 5. The
+`picture_bitrate_measured` and `j2k_codestream_summary` fixtures are the 146th and
+147th and are not differential subjects: they inject no defect, so there is no
+catch to attribute.
 
-dcpdoctor catches 129 of 129 injected defects, ClairMeta 100.
+dcpdoctor catches 145 of 145 injected defects, ClairMeta 113.
 
-`subtitle_glyph_missing` and `reel_edit_rate_mismatch` sit in a bucket that reads
-worse than it is. Both are WARNING in dcpdoctor, so their packages pass, and the
-differential splits on pass/fail and never sees a warning. Neither is a missed
-defect: `run_corpus.py` asserts both fire.
+Most of CLAIRMETA_ONLY_FAIL reads worse than it is. The defect dcpdoctor rates
+WARNING leaves the package passing, and the differential splits on pass/fail and
+never sees a warning, so `subtitle_glyph_missing`, `reel_edit_rate_mismatch`,
+`isdcf_naming_violation`, the annotation-text pair, the subtitle line and charset
+limits, `subtitle_invalid_issue_date` and `subtitle_namespace_count` all land
+there. None is a missed defect: `run_corpus.py` asserts every one of them fires.
+`sound_no_mca`, `sound_invalid_sample_rate`, `mxf_invalid_structure` and
+`j2k_legacy_ffff` are the same story on the essence side: the differential runs
+each fixture on its manifest flags, so the code does fire, at WARNING or INFO,
+where ClairMeta rejects the package outright.
 
+- CLAIRMETA_ONLY_FAIL grew from 25 to 31, and all six additions are fixtures this
+  pass added. `subtitle_invalid_issue_date` and `subtitle_namespace_count` are
+  WARNING in dcpdoctor, and ClairMeta rejects the package on the shape of the
+  injected asset rather than on the defect: `check_assets_cpl_uuid` and
+  `check_subtitle_dcp_format`, because the corpus attaches its timed text as loose
+  XML where a SMPTE package wants an ST 429-5 MXF wrap. Their four DoM twins
+  (`dom_cpl_annotation_text_mismatch`, `dom_pkl_annotation_text_mismatch`,
+  `dom_subtitle_invalid_issue_date`, `dom_subtitle_namespace_count`) add
+  `check_document_signature`: DCP-o-matic signs its CPL and PKL for real, and
+  `reseal` rewrites the XML, so every mutated DoM package carries a stale
+  signature. It fires on 50 DoM packages in all and on neither clean DoM
+  baseline, so it tracks the reseal and not the vendor. dcpdoctor's default
+  signature check is presence-only, which is why it passes them.
+- DCPDOCTOR_ONLY_FAIL grew from 18 to 21, entirely on reference packages and
+  entirely from 0.5.0's new checks: ECL08 on `timed_text_id_mismatch`, ECL29 on
+  `partially_encrypted` and `subtitle_overlaps_reel`, ECL33 on
+  `subtitle_overlaps_reel`. ClairMeta passes all three. Each is a real defect in a
+  real third-party package that no corpus fixture had to be written to find.
 - `check_assets_am_size` was the one gap only the second vendor could show, and
   dcpdoctor's `assetmap_size_mismatch` closes it. ClairMeta checks each ASSETMAP
   chunk Length against the file on disk, DoM writes that element and dcpwizard
@@ -240,25 +271,42 @@ defect: `run_corpus.py` asserts both fire.
   injected into a DoM CPL. The dcpwizard twins of those last two parse fine, so
   it is ClairMeta's reader disagreeing with DoM's CPL shape, not our mutation.
 
-- `check_assets_cpl_metadata` fails 6 packages, down from 64. Every one of the 64
+- `check_assets_cpl_metadata` fails 12 packages, down from 64. Every one of the 64
   reported "Id metadata mismatch, CPL claims X but MXF Y" because dcpwizard
   minted a CPL asset Id that was not the MXF's own AssetUUID, and dcpwizard
-  c1d73a6 fixed the mint. All three valid baselines are BOTH_PASS with no
+  c1d73a6 fixed the mint. Every valid baseline is BOTH_PASS with no
   ClairMeta error at all, and the 14 fixtures the mismatch had dragged from
   DCPDOCTOR_ONLY_FAIL to BOTH_FAIL are back where their own defect puts them.
   What is left is packages that earn the check: `cpl_invalid_edit_rate`,
   `stereo_framerate`, `picture_invalid_resolution` and `mxf_asset_id_mismatch`
   each inject a CPL-versus-essence disagreement on purpose, `encrypted_no_kdm`
-  gives ClairMeta no key to probe the essence with, and ECL40 is a reference
-  package that already failed it.
+  and `partially_encrypted` give ClairMeta no key to probe the essence with, five
+  of those are DoM twins as well, and ECL40 is a reference package that already
+  failed it. All 11 fixtures are BOTH_FAIL.
 - `mxf_asset_id_mismatch` is BOTH_FAIL. ClairMeta confirms it with
   `check_assets_cpl_metadata` and `check_assets_cpl_uuid`, so the fixture holds
   the defect dcpwizard used to emit and both tools now reject it.
-- `check_picture_cpl_max_bitrate` fires on 4 packages: the
-  `j2k_bitrate_exceeded` fixture at 264.38 Mb/s over the 250 Mb/s limit, ECL25 at
-  358.25, ECL42 at 593.55 over the 4K 500 limit, and ECL40 through a ClairMeta
-  internal error. `valid/dcp_3d` no longer fires. It is rebuilt at 100 Mb/s per
-  eye and measures 200.01, where the old build measured 250.01.
+- `check_picture_cpl_max_bitrate` fires at ERROR on three packages, all reference:
+  ECL25 at 358.25 Mb/s, ECL42 at 593.55 over the 4K 500 limit, and ECL40. All
+  three are CLAIRMETA_ONLY_FAIL, as is ECL39 on `check_cpl_reel_coherence` and
+  `check_picture_cpl_encoding`. This is the essence divergence the reference bucket
+  has carried since before this run, not new, and under 0.5.0 it is entirely a
+  flags artifact: references go through dcpdoctor with no flags (see
+  `diff/README.md`), so it never reads their essence. With `--check-mxf` dcpdoctor
+  fails ECL25 on `j2k_bitrate_exceeded` at 358.2 Mb/s and ECL42 at 593.5 plus a
+  per-component overrun at 96 fps, both agreeing with ClairMeta's numbers to the
+  tenth, and fails ECL39 on three `j2k_poc_invalid` notes ClairMeta does not
+  report at all. Only ECL40 passes dcpdoctor either way.
+- Giving the reference packages `--check-mxf` in `scan_reference.py` and the
+  differential would move ECL25, ECL39 and ECL42 from CLAIRMETA_ONLY_FAIL to
+  BOTH_FAIL and cover `j2k_poc_invalid`, which no synthetic fixture can reach
+  because neither grok nor the corpus writes a POC marker. Not done: it changes
+  every reference package's recorded verdict at once, so it wants its own pass.
+- The `j2k_bitrate_exceeded` fixture is BOTH_PASS. dcpdoctor rates it WARNING, and
+  ClairMeta reports `check_picture_cpl_avg_bitrate` as a warning rather than the
+  max-bitrate error, so neither tool fails the package and the differential, which
+  splits on pass/fail, sees agreement. `valid/dcp_3d` fires nothing: it is built at
+  100 Mb/s per eye and measures 200.01, where the old build measured 250.01.
 - dcpdoctor's bitrate measurement agrees with asdcp-info on the fixture, "Peak
   frame bitrate 264.4 Mbps exceeds the DCI limit of 250 Mbps (frame 29 of 48)",
   and stays silent on the 200 Mb/s baseline. `j2k_bitrate_exceeded` coverage is a
@@ -266,9 +314,10 @@ defect: `run_corpus.py` asserts both fire.
 - ClairMeta reads sound essence, so it catches `sound_invalid_sample_rate`
   (check_sound_cpl_sampling), `sound_invalid_quantization`
   (check_sound_cpl_quantization) and `sound_no_mca` (check_sound_cpl_channels_odd).
-Three of the CLAIRMETA_ONLY_FAIL packages are unchanged policy divergences, where
-dcpdoctor flags the same defect at WARNING so the package "passes". Kept at
-WARNING deliberately, no SMPTE "shall" demands rejection:
+Three codes, five of the CLAIRMETA_ONLY_FAIL packages once the DoM twins of
+`reel_discontinuity` and `bv21_pkl_no_xml_ext` are counted, are unchanged policy
+divergences where dcpdoctor flags the same defect at WARNING so the package
+"passes". Kept at WARNING deliberately, no SMPTE "shall" demands rejection:
 - `reel_discontinuity`: ST 429-2/-7 define no cross-reel EntryPoint continuity
   requirement. Each reel references an independent asset at an arbitrary entry
   point, so a non-contiguous chain is unusual but conformant.
@@ -290,27 +339,68 @@ WARNING deliberately, no SMPTE "shall" demands rejection:
   - `subtitle_wrong_namespace` (smpte_namespace_wrong) and `interop_namespace_wrong`
     on the subtitle path: ST 428-7 fixes the DCST namespace string, so a wrong
     namespace is non-conformant and unparseable by a compliant player.
-- DCPDOCTOR_ONLY_FAIL 18, where dcpdoctor is the only tool catching the defect:
+- DCPDOCTOR_ONLY_FAIL 21, where dcpdoctor is the only tool catching the defect:
   duplicate_asset_id, missing_cpl, cpl_invalid_content_kind,
   composition_metadata_asset_mismatch, the six certificate fixtures,
   empty_file_in_package, mxf_unreadable, manifest_size_mismatch,
-  j2k_invalid_component_count, main_sound_config_invalid, j2k_guard_bits, and the
-  DoM twins of duplicate_asset_id and empty_file_in_package.
+  j2k_invalid_component_count, main_sound_config_invalid, j2k_guard_bits, the
+  DoM twins of duplicate_asset_id and empty_file_in_package, and the three
+  reference packages ECL08, ECL29 and ECL33.
 - Reference packages run through dcpdoctor with no flags, so it does not read
-  their essence while ClairMeta does. Adding `--check-mxf` changes no verdict on
-  ECL25, ECL39 or ECL42, so the gaps above are real and not a flags artifact.
+  their essence while ClairMeta does. Under 0.5.0 that is the whole of the
+  reference-side divergence: `--check-mxf` flips ECL25, ECL39 and ECL42 to FAIL.
+  The note that used to sit here, that the flag changed no verdict, was true of an
+  older dcpdoctor and is not true now.
 - `mediainfo` is still absent. Only `probe_mediainfo` uses it and no DCP check
   calls that, so it changes nothing.
 
-## Remaining coverage gaps: none
+## Remaining coverage gaps: 19 of 119 codes (2026-08-22)
 
-All 87 codes in `ALL_CODES` have a fixture that fires them and a baseline that
-does not. `UNCOVERED_REASONS` still carries three entries, for codes only the ECL
-reference packages or the `--manifest` compare reach: those are what a run
-without `CLAIRMETA_DATA` prints as uncovered even though a full run resolves
-them.
+dcpdoctor 0.5.0 added 32 codes. 13 of them got a fixture in this pass and 19 have
+none, so `ALL_CODES` is 119 and 100 are exercised. `UNCOVERED_REASONS` carries a
+reason for each, and they fall into four groups.
 
-`sound_invalid_block_align` was the last gap, recorded as unreachable because
+Five already fire somewhere in the corpus without being isolated, four of them
+declared in another fixture's `also_emits`. Isolating each is cheap and worth
+doing:
+
+- `cpl_pkl_hash_mismatch` on `pkl_hash_mismatch`. A CPL-only hash corruption needs
+  a `reseal` that fixes the PKL's record of the CPL without rewriting the CPL's own
+  asset hashes, which is one keyword argument.
+- `cpl_missing_hash` on the `valid/dcp_3d` baseline, where dcpwizard's
+  stereoscopic CPL writes no picture `<Hash>` at all. Firing on a baseline is what
+  makes it unassertable there; a fixture that deletes the `<Hash>` from the 5.1
+  base needs the same keyword argument.
+- `cpl_active_area_invalid` and `j2k_missing_tlm` on `picture_invalid_resolution`,
+  both brought in by the substituted 1920-wide non-cinema essence.
+- `j2k_parameters_vary` on `j2k_invalid_component_count`, which patches frame 0
+  only.
+
+One is reachable only through the reference packages and only with an essence
+flag: `j2k_poc_invalid`, three notes on ECL39. See the differential section for
+why the references run with no flags and what changing that would cost.
+
+Seven need a document shape `corpus_gen.py` does not build: `closed_caption_layout`
+(cue lines carrying VAlign/VPosition), `timed_text_size_exceeded` (a timed-text
+asset over the Bv2.1 byte cap), `subtitle_font_too_large` (an ST 429-5 MXF wrap
+carrying an oversized font, where the corpus writes loose XML),
+`subtitle_missing_from_reel` and `closed_caption_count_mismatch` (a multi-reel
+composition with timed text on some reels only), plus `subtitle_language_mismatch`
+(two subtitle assets disagreeing on `<Language>`) and
+`closed_caption_interop_overlap` (two overlapping cues in an Interop caption
+asset).
+
+The rest need essence or inputs the corpus has no builder for:
+`projector_4k_stereo_support` (4K stereoscopic essence), the three KDM rules
+(`kdm_thumbprint_invalid`, `kdm_content_authenticator_invalid`,
+`kdm_assume_trust_conflict`), and `cpl_invalid_language`, which cannot be isolated
+at all: the CPL language elements are `xs:language`, so a bogus tag draws
+`xml_schema_violation` with it. `schema_validation_skipped` fires only when no
+schema directory is found, and dcpdoctor ships `schemas/`, so nothing here can
+reach it.
+
+One earlier entry on this list is worth keeping as a warning about the others:
+`sound_invalid_block_align` was recorded as unreachable because
 ffprobe derives block_align from channels x bit-depth. The real reason it never
 fired is that ffprobe does not report `block_align` for an MXF at all, so the
 value arrived as 0 and the check skipped itself. That was a dcpdoctor gap, not an

@@ -37,6 +37,8 @@ IMF_SRC = os.path.join(CORPUS, "valid", "imf_ov")  # IMF IMP, built by build_cor
 NONDCI_MXF = os.path.join(CORPUS, ".nondci", "nondci_res.mxf")  # non-DCI J2K wrapped by asdcp-wrap
 # the second mastering tool in the corpus. Every fixture derived from BASE
 # resolves its targets by content, so the same mutation applies to these too.
+ALL_MARKERS_BASELINE = "valid/dcp_all_markers"
+ALL_MARKERS = os.path.join(CORPUS, *ALL_MARKERS_BASELINE.split("/"))
 DOM_BASE = os.path.join(CORPUS, "valid", "dcp_dom_ov")
 DOM_INTEROP = os.path.join(CORPUS, "valid", "dcp_dom_interop")
 SIGNED_BASE = os.path.join(CORPUS, "valid", "dcp_signed")
@@ -305,11 +307,41 @@ def assetmap_id_to_path(d):
     return out
 
 
+def reseal_cpl_hashes(d):
+    """Rewrite each CPL asset <Hash> from the file the ASSETMAP resolves its id
+    to. A track asset carries its Hash after its Id, so the id a Hash belongs to
+    is the last one before it. Without this, mutating essence leaves the CPL
+    claiming the old digest while the PKL claims the new one, which dcpdoctor
+    reports as cpl_pkl_hash_mismatch on top of the defect the fixture is for."""
+    id2path = assetmap_id_to_path(d)
+    try:
+        p = cpl_path(d)
+    except FileNotFoundError:
+        return
+    s = read(p)
+    ids = [(m.end(), m.group(1)) for m in re.finditer(
+        r"<(?:[\w.-]+:)?Id>\s*(urn:uuid:[0-9a-fA-F-]{36})\s*</(?:[\w.-]+:)?Id>", s)]
+
+    def fix_hash(m):
+        owner = [i for end, i in ids if end <= m.start()]
+        rel = id2path.get(owner[-1]) if owner else None
+        if not rel:
+            return m.group(0)
+        fp = os.path.join(d, rel)
+        if not os.path.exists(fp):
+            return m.group(0)
+        prefix = m.group(1)
+        return f"<{prefix}Hash>{sha1_b64(fp)}</{prefix}Hash>"
+
+    write(p, re.sub(r"<((?:[\w.-]+:)?)Hash>[^<]*</(?:[\w.-]+:)?Hash>", fix_hash, s))
+
+
 def reseal(d):
-    """Recompute every PKL asset Hash+Size, then every ASSETMAP chunk Length,
-    from the actual files so the only remaining defect is the intended one.
-    Assets whose file is absent are left as-is (their hash check is skipped by
-    dcpdoctor anyway)."""
+    """Recompute every CPL and PKL asset Hash+Size, then every ASSETMAP chunk
+    Length, from the actual files so the only remaining defect is the intended
+    one. Assets whose file is absent are left as-is (their hash check is skipped
+    by dcpdoctor anyway)."""
+    reseal_cpl_hashes(d)  # before the PKL, so the PKL hashes the new CPL
     id2path = assetmap_id_to_path(d)
     pkl = pkl_path(d)
     s = read(pkl)
@@ -465,16 +497,19 @@ CC_NS = "http://www.digicine.com/PROTO-ASDCP-CC-CPL-20070926#"
 
 
 def add_timed_text(d, xml, *, element="MainSubtitle", asset_id=SUB_ID,
-                   filename="sub.xml", ns_decl=""):
+                   filename="sub.xml", ns_decl="", entry_point=0):
     """Attach a timed-text track (referencing `filename`) to the first reel and
     register the file in the ASSETMAP, so dcpdoctor's subtitle/closed-caption
-    checks run on the given document."""
+    checks run on the given document. Bv2.1 §8.3.2 wants a zero EntryPoint on a
+    timed-text asset; entry_point=None leaves the element out."""
     write(os.path.join(d, filename), xml)
     p = cpl_path(d)
+    entry = "" if entry_point is None else f"          <EntryPoint>{entry_point}</EntryPoint>\n"
     block = (f"        <{element}{ns_decl}>\n"
              f"          <Id>{asset_id}</Id>\n"
              "          <EditRate>24 1</EditRate>\n"
              "          <IntrinsicDuration>48</IntrinsicDuration>\n"
+             f"{entry}"
              "          <Duration>48</Duration>\n"
              f"        </{element}>\n")
     s = read(p).replace("        </MainSound>", "        </MainSound>\n" + block, 1)
@@ -491,8 +526,8 @@ def add_assetmap_entry(d, asset_id, filename):
     write(am_path(d), am.replace("  </AssetList>", asset + "  </AssetList>", 1))
 
 
-def add_subtitle(d, sub_xml):
-    add_timed_text(d, sub_xml)
+def add_subtitle(d, sub_xml, **kwargs):
+    add_timed_text(d, sub_xml, **kwargs)
 
 
 MARKERS_ID = "urn:uuid:00000000-0000-0000-0000-0000000000aa"
@@ -520,29 +555,47 @@ def add_markers(d, markers, *, edit_rate="24 1"):
                              block + "        <MainPicture>", 1))
 
 
-def add_closed_caption(d, ccap_xml):
+def add_closed_caption(d, ccap_xml, **kwargs):
     """Attach a ClosedCaption track so check_timed_text_content runs the
     closed-caption limits (stricter than the subtitle ones) on the document."""
     add_timed_text(d, ccap_xml, element="cc:ClosedCaption", asset_id=CCAP_ID,
-                   filename="ccap.xml", ns_decl=f' xmlns:cc="{CC_NS}"')
+                   filename="ccap.xml", ns_decl=f' xmlns:cc="{CC_NS}"', **kwargs)
+
+
+# the IssueDate form Deluxe QC demands and dcpdoctor checks for: yyyy-mm-ddThh:mm:ss
+DCST_ISSUE_DATE = "2026-01-01T00:00:00"
 
 
 def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=True,
          time_in="00:00:01:00", time_out="00:00:02:00", broken=False,
-         lines=("hi",), time_code_rate=None):
+         lines=("hi",), time_code_rate=24, issue_date=DCST_ISSUE_DATE,
+         start_time="00:00:00:000", extra_namespace=None):
     """Build a SMPTE DCST timed-text document, omitting or overriding parts to
     trigger a code. Each entry in `lines` becomes one <Text> element, which is
-    how dcpdoctor counts displayed lines."""
+    how dcpdoctor counts displayed lines.
+
+    Element order follows the SubtitleReelType sequence in DCDMSubtitle-2010.xsd
+    (Id, ContentTitleText, IssueDate, ReelNumber, Language, EditRate,
+    TimeCodeRate, StartTime, LoadFont, SubtitleList), so a document with nothing
+    overridden is schema-clean and draws no finding of its own."""
     xmlns = f' xmlns="{DCST_NS}"' if ns else ' xmlns="urn:example:not-dcst"'
+    if extra_namespace:
+        xmlns += f' xmlns:extra="{extra_namespace}"'
     parts = [f'<?xml version="1.0" encoding="UTF-8"?>\n<SubtitleReel{xmlns}>']
     if sub_id:
         parts.append(f"  <Id>{SUB_ID}</Id>")
+    parts.append("  <ContentTitleText>CTPBase</ContentTitleText>")
+    if issue_date is not None:
+        parts.append(f"  <IssueDate>{issue_date}</IssueDate>")
     if reel_number:
         parts.append("  <ReelNumber>1</ReelNumber>")
     if language:
         parts.append("  <Language>en</Language>")
+    parts.append("  <EditRate>24 1</EditRate>")
     if time_code_rate is not None:
         parts.append(f"  <TimeCodeRate>{time_code_rate}</TimeCodeRate>")
+    if start_time is not None:
+        parts.append(f"  <StartTime>{start_time}</StartTime>")
     if load_font:
         parts.append(f'  <LoadFont ID="Arial">{FONT_ID}</LoadFont>')
     parts.append("  <SubtitleList>")
@@ -556,13 +609,18 @@ def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=Tru
 
 
 def dcsubtitle(*, lines=("hi",), font_uri="font.ttf",
-               time_in="00:00:01:00", time_out="00:00:02:00"):
+               time_in="00:00:01:000", time_out="00:00:02:000"):
     """Build an Interop DCSubtitle document. Interop references its font by URI
-    rather than by asset urn, which is how the glyph check resolves one."""
+    rather than by asset urn, which is how the glyph check resolves one.
+
+    DCSubtitle.xsd carries no targetNamespace and spells the identifier as a
+    SubtitleID element ahead of MovieTitle, so a conformant document declares no
+    xmlns at all and its times are three-digit ticks."""
     text = "".join(f"<Text>{line}</Text>" for line in lines)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<DCSubtitle Version="1.0" xmlns="http://www.digicine.com/PROTO-ASDCP-TT-DEF" '
-            f'SubtitleID="{SUB_ID}">\n'
+            '<DCSubtitle Version="1.0">\n'
+            f'  <SubtitleID>{SUB_ID[len("urn:uuid:"):]}</SubtitleID>\n'
+            "  <MovieTitle>CTPBase</MovieTitle>\n"
             "  <ReelNumber>1</ReelNumber>\n"
             "  <Language>en</Language>\n"
             f'  <LoadFont Id="Arial" URI="{font_uri}"/>\n'
@@ -804,7 +862,10 @@ def _(d):
 
 
 @fixture("pkl_hash_mismatch", ["pkl_hash_mismatch"], [],
-         "PKL Hash for the picture MXF corrupted", reseal_after=False)
+         "PKL Hash for the picture MXF corrupted", reseal_after=False,
+         # the CPL carries its own <Hash> for the same asset, so a corrupted PKL
+         # hash disagrees with it as well as with the file
+         also=["cpl_pkl_hash_mismatch"])
 def _(d):
     s = read(pkl_path(d))
     # corrupt the first mxf asset hash (picture)
@@ -861,8 +922,9 @@ def _(d):
 
 @fixture("cpl_missing_reel", ["cpl_missing_reel"], [],
          "CPL ReelList emptied",
-         # 429-7 requires at least one Reel, so an emptied ReelList cannot validate
-         also=["xml_schema_violation"])
+         # 429-7 requires at least one Reel, so an emptied ReelList cannot
+         # validate, and CompositionMetadataAsset lives inside a Reel
+         also=["xml_schema_violation", "missing_required_element"])
 def _(d):
     p = cpl_path(d)
     s = re.sub(r"<ReelList>[\s\S]*</ReelList>", "<ReelList></ReelList>", read(p))
@@ -910,37 +972,92 @@ def _(d):
     write(p, s)
 
 
+NON_ISDCF_TITLE = "BadNameNoFields"
+
+
 @fixture("isdcf_naming_violation", ["isdcf_naming_violation"], [],
-         "ContentTitleText replaced with a non-ISDCF name")
+         "ContentTitleText replaced with a non-ISDCF name. The CPL and PKL "
+         "AnnotationText are rewritten with it, so the name is the only defect "
+         "and the two annotation-consistency checks stay quiet")
 def _(d):
+    for p in (cpl_path(d), pkl_path(d)):
+        s = re.sub(r"<((?:[\w.-]+:)?)AnnotationText>[^<]*</(?:[\w.-]+:)?AnnotationText>",
+                   rf"<\g<1>AnnotationText>{NON_ISDCF_TITLE}</\g<1>AnnotationText>", read(p))
+        s = re.sub(r"<((?:[\w.-]+:)?)ContentTitleText>[^<]*</(?:[\w.-]+:)?ContentTitleText>",
+                   rf"<\g<1>ContentTitleText>{NON_ISDCF_TITLE}</\g<1>ContentTitleText>", s)
+        write(p, s)
+
+
+PICTURE_KEY_ID = "urn:uuid:00000000-0000-0000-0000-0000000000bb"
+SOUND_KEY_ID = "urn:uuid:00000000-0000-0000-0000-0000000000bc"
+
+
+def add_key_id(d, element, key_id):
     p = cpl_path(d)
-    s = re.sub(r"<ContentTitleText>[^<]*</ContentTitleText>",
-               "<ContentTitleText>BadNameNoFields</ContentTitleText>", read(p))
-    write(p, s)
+    write(p, read(p).replace(
+        f"</{element}>",
+        f"  <KeyId>{key_id}</KeyId>\n        </{element}>", 1))
 
 
 @fixture("encrypted_no_kdm", ["encryption_detected", "kdm_required"], [],
-         "KeyId added to MainPicture, no KDM present",
+         "KeyId added to both MainPicture and MainSound, no KDM present. Both "
+         "tracks are keyed so the composition is wholly encrypted and only the "
+         "missing KDM is left",
          # an encrypted package must be signed, and the injected KeyId is not schema-clean
          also=["dcp_not_signed", "xml_schema_violation"])
 def _(d):
+    add_key_id(d, "MainPicture", PICTURE_KEY_ID)
+    add_key_id(d, "MainSound", SOUND_KEY_ID)
+
+
+@fixture("partially_encrypted", ["partially_encrypted"], [],
+         "KeyId added to MainPicture alone, so the composition mixes encrypted "
+         "picture with clear sound",
+         # everything an encrypted CPL brings with it, minus the KDM it has no
+         # place to come from, and the injected KeyId is not schema-clean
+         also=["encryption_detected", "kdm_required", "dcp_not_signed",
+               "xml_schema_violation"])
+def _(d):
+    add_key_id(d, "MainPicture", PICTURE_KEY_ID)
+
+
+@fixture("cpl_annotation_text_mismatch", ["cpl_annotation_text_mismatch"], [],
+         "CPL AnnotationText no longer matches its own ContentTitleText. The PKL "
+         "is left alone, whose check compares against ContentTitleText, so only "
+         "the CPL-side check fires")
+def _(d):
     p = cpl_path(d)
-    s = read(p).replace("</MainPicture>",
-                        "  <KeyId>urn:uuid:00000000-0000-0000-0000-0000000000bb</KeyId>\n"
-                        "        </MainPicture>", 1)
-    write(p, s)
+    write(p, re.sub(r"<((?:[\w.-]+:)?)AnnotationText>[^<]*</(?:[\w.-]+:)?AnnotationText>",
+                    r"<\g<1>AnnotationText>SomethingElse</\g<1>AnnotationText>",
+                    read(p), count=1))
+
+
+@fixture("pkl_annotation_text_mismatch", ["pkl_annotation_text_mismatch"], [],
+         "PKL AnnotationText no longer matches the CPL's ContentTitleText")
+def _(d):
+    p = pkl_path(d)
+    write(p, re.sub(r"<((?:[\w.-]+:)?)AnnotationText>[^<]*</(?:[\w.-]+:)?AnnotationText>",
+                    r"<\g<1>AnnotationText>SomethingElse</\g<1>AnnotationText>",
+                    read(p), count=1))
 
 
 @fixture("markers_bad", ["marker_missing", "marker_invalid"], ["--strict"],
-         "MainMarkers present, required FFMC/LFMC absent, a marker lacks Offset",
+         "The all-markers baseline with the FFMC and LFMC entries dropped and "
+         "the FFOC Offset removed. Under --strict dcpdoctor reports every "
+         "recommended marker a CPL leaves out, so the baseline has to carry the "
+         "whole set for the missing pair to mean anything",
+         src=ALL_MARKERS, baseline=ALL_MARKERS_BASELINE, vendor_portable=False,
          # the schema demands AnnotationText or Offset, so the missing Offset
          # this fixture is for cannot help violating it too
-         also=["xml_schema_violation"],
-         # DCP-o-matic writes no FFMC/LFMC, so its clean package already reports
-         # marker_missing and the same mutation proves nothing there
-         vendor_portable=False)
+         also=["xml_schema_violation"])
 def _(d):
-    add_markers(d, [("FFOC", None)])
+    p = cpl_path(d)
+    s = read(p)
+    for label in ("FFMC", "LFMC"):
+        s = re.sub(r"[ \t]*<Marker>\s*<Label>" + label + r"</Label>[\s\S]*?</Marker>\n",
+                   "", s, count=1)
+    s = re.sub(r"(<Label>FFOC</Label>)\s*<Offset>\d+</Offset>", r"\1", s, count=1)
+    write(p, s)
 
 
 @fixture("reel_edit_rate_mismatch", ["reel_edit_rate_mismatch"], [],
@@ -1133,7 +1250,10 @@ def _(d):
          "Real mono DCP whose sound MXF carries no ST 429-12 MCA subdescriptors; "
          "the 5.1 base (dcp_ov) is labeled so the INFO is absent there. dcpdoctor "
          "reads the MXF subdescriptors, not the CPL, so this is non-vacuous.",
-         src=MONO, copy_mxf=True)
+         src=MONO, copy_mxf=True,
+         # 1 channel is neither 8 nor 16, and dcpwizard's mono build writes no
+         # CompositionMetadataAsset at all
+         also=["distributor_audio_channel_count", "missing_required_element"])
 def _(d):
     pass  # the mono build already lacks MCA soundfield labels
 
@@ -1208,8 +1328,9 @@ def _(d):
 @fixture("stereo_framerate", ["stereo_mismatch"], ["--check-mxf"],
          "Real 3D DCP whose MainStereoscopicPicture FrameRate is not twice the "
          "EditRate (ST 429-10); part-1b relationship check", src=THREE_D,
-         # the rate is part of the ISDCF name the file still carries
-         also=["isdcf_naming_violation"])
+         # the unmutated 3D package, so its own quirks (no picture <Hash> in the
+         # CPL, F-3D in the ISDCF name) are not read as this fixture's doing
+         baseline="valid/dcp_3d")
 def _(d):
     p = cpl_path(d)
     write(p, read(p).replace("<FrameRate>48 1</FrameRate>",
@@ -1224,7 +1345,9 @@ def _(d):
 
 
 @fixture("subtitle_parse_error", ["subtitle_parse_error"], [],
-         "MainSubtitle references a malformed DCST XML document")
+         "MainSubtitle references a malformed DCST XML document",
+         # a document that does not parse cannot validate against a schema either
+         also=["xml_schema_violation"])
 def _(d):
     add_subtitle(d, dcst(broken=True))
 
@@ -1244,7 +1367,9 @@ def _(d):
 
 
 @fixture("subtitle_missing_id", ["missing_required_element"], [],
-         "Subtitle reel is missing its SubtitleID/Id identifier")
+         "Subtitle reel is missing its SubtitleID/Id identifier",
+         # the DCST schema requires Id first, so dropping it also breaks the schema
+         also=["xml_schema_violation"])
 def _(d):
     add_subtitle(d, dcst(sub_id=False))
 
@@ -1343,8 +1468,11 @@ def _(d):
          "asdcp-wrap and swapped in for the picture MXF; the MXF descriptor "
          "resolution trips picture_invalid_resolution and the plain codestream "
          "trips j2k_invalid_profile", copy_mxf=True, requires=[NONDCI_MXF],
-         # the substituted essence carries its own AssetUUID, not the one the CPL names
-         also=["mxf_asset_id_mismatch"])
+         # everything else the substituted essence brings with it: its own
+         # AssetUUID, 1920 pixels against the CPL's 2048-wide active area, and a
+         # plain grok codestream with 2 guard bits and no TLM marker
+         also=["mxf_asset_id_mismatch", "cpl_active_area_invalid",
+               "j2k_guard_bits", "j2k_missing_tlm"])
 def _(d):
     replace_picture_mxf(d, NONDCI_MXF)
 
@@ -1353,7 +1481,9 @@ def _(d):
          ["--check-mxf", "--deep-j2k"],
          "Picture MXF first-frame SIZ Csiz byte-patched 3 -> 4 so the codestream "
          "declares 4 components (asdcp-wrap refuses a 4-component essence, so the "
-         "count is patched into a valid 3-component wrap)", copy_mxf=True)
+         "count is patched into a valid 3-component wrap)", copy_mxf=True,
+         # only frame 0 is patched, so frame 1 onward disagrees with it
+         also=["j2k_parameters_vary"])
 def _(d):
     patch_j2k_component_count(picture_mxf(d))
 
@@ -1457,6 +1587,39 @@ def _(d):
     add_closed_caption(d, dcst(lines=("♪ music ★",)))
 
 
+@fixture("subtitle_entry_point", ["subtitle_entry_point"], [],
+         "MainSubtitle reel asset carries no <EntryPoint>, which Bv2.1 §8.3.2 "
+         "requires on a timed-text track")
+def _(d):
+    add_subtitle(d, dcst(), entry_point=None)
+
+
+@fixture("closed_caption_entry_point", ["closed_caption_entry_point"], [],
+         "ClosedCaption reel asset carries no <EntryPoint>")
+def _(d):
+    add_closed_caption(d, dcst(), entry_point=None)
+
+
+@fixture("subtitle_invalid_issue_date", ["subtitle_invalid_issue_date"], [],
+         "Subtitle document IssueDate carries a UTC offset, so it is a valid "
+         "xs:dateTime but not the bare yyyy-mm-ddThh:mm:ss Deluxe QC demands")
+def _(d):
+    add_subtitle(d, dcst(issue_date="2026-01-01T00:00:00Z"))
+
+
+@fixture("subtitle_empty_text", ["subtitle_empty_text"], [],
+         "Subtitle cue carries a <Text> element with nothing in it")
+def _(d):
+    add_subtitle(d, dcst(lines=("",)))
+
+
+@fixture("subtitle_namespace_count", ["subtitle_namespace_count"], [],
+         "Subtitle root declares a second namespace beside the DCST one, which "
+         "is how a document assembled from two schema versions reads")
+def _(d):
+    add_subtitle(d, dcst(extra_namespace="urn:example:second-namespace"))
+
+
 @fixture("mxf_asset_id_mismatch", ["mxf_asset_id_mismatch"], [],
          "The picture asset id is rewritten to a fresh uuid in the CPL, PKL and "
          "ASSETMAP together, so the package resolves the asset but the MXF still "
@@ -1509,6 +1672,30 @@ def build_encrypted_signed_baseline():
     reseal(dest)  # refresh the CPL hash the PKL carries
 
 
+# the markers dcpwizard leaves out, with offsets inside the 48-frame base. Only
+# FFOC and LFOC carry a rule about their value, and dcpwizard already writes both.
+EXTRA_MARKERS = [("FFTC", 2), ("LFTC", 3), ("FFOI", 4), ("LFOI", 5),
+                 ("FFEC", 6), ("LFEC", 7), ("FFMC", 8), ("LFMC", 9)]
+
+
+def build_all_markers_baseline():
+    """The markers_bad baseline: the base DCP with every marker dcpdoctor names
+    under --strict, so a fixture that drops one is the only thing reporting
+    marker_missing. Added inside the MainMarkers track dcpwizard already writes,
+    which keeps the CPL schema-valid."""
+    dest = clone(ALL_MARKERS)
+    p = cpl_path(dest)
+    entries = "".join(
+        "            <Marker>\n"
+        f"              <Label>{label}</Label>\n"
+        f"              <Offset>{offset}</Offset>\n"
+        "            </Marker>\n"
+        for label, offset in EXTRA_MARKERS)
+    write(p, read(p).replace("          <MarkerList>\n",
+                             "          <MarkerList>\n" + entries, 1))
+    reseal(dest)
+
+
 def build_certificate_chain_baseline():
     """The baseline for the six certificate-rule fixtures: the base DCP signed
     with a chain that satisfies every rule in cert_rules.rs, so each fixture's
@@ -1553,6 +1740,9 @@ def main():
     # the certificate-rule baseline (base DCP signed with a conformant chain)
     build_certificate_chain_baseline()
 
+    # the markers_bad baseline (base DCP carrying every marker --strict names)
+    build_all_markers_baseline()
+
     manifest = {"baselines": [], "fixtures": []}
     # real dcpwizard packages that must validate clean (0 errors). dcp_ov is the
     # 5.1 labeled base; dcp_3d / dcp_atmos are the new 429-10 / 429-18 types.
@@ -1572,6 +1762,12 @@ def main():
         "flags": ["--strict", "--check-mxf"], "expected_codes": [],
         "notes": "Atmos AuxData (ST 429-18) DCP; validates clean (aux_data_detected "
                  "is INFO, not an error)",
+    })
+    manifest["baselines"].append({
+        "dir": ALL_MARKERS_BASELINE, "package_type": "dcp", "is_valid_baseline": True,
+        "flags": ["--strict", "--check-mxf"], "expected_codes": [],
+        "notes": "the base DCP with every marker --strict names, so it is the one "
+                 "baseline that reports no marker_missing at all",
     })
     manifest["baselines"].append({
         "dir": "valid/dcp_signed", "package_type": "dcp", "is_valid_baseline": True,
@@ -1634,6 +1830,23 @@ def main():
         for f in FIXTURES:
             if f["vendor_portable"] and f["src"] == BASE and f["baseline"] == "valid/dcp_ov":
                 build_fixture(f, f"dom_{f['name']}", DOM_BASE, "valid/dcp_dom_ov")
+
+    # j2k_codestream_summary is the same shape: an INFO the deep-J2K scan reports
+    # for any picture track it reads, so the fixture asserts the gate
+    manifest["fixtures"].append({
+        "dir": "valid/dcp_ov",
+        "package_type": "dcp",
+        "is_valid_baseline": False,
+        "expected_codes": ["j2k_codestream_summary"],
+        "also_emits": [],
+        "flags": ["--deep-j2k"],
+        "baseline": "valid/dcp_ov",
+        "baseline_flags": [],
+        "notes": "the base DCP's picture codestream summarised by the per-frame "
+                 "deep-J2K scan; the code is INFO with no pass/fail, so the "
+                 "assertion is that --deep-j2k turns the summary on and no flags "
+                 "leaves it off",
+    })
 
     # picture_bitrate_measured is INFO and needs no defect: any IMP picture track
     # read under the picture-details gate reports its measured peak. So the
