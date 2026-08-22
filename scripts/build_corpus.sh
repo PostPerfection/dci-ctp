@@ -114,37 +114,39 @@ build "$CORPUS/.enc_src" \
     --content-type TST --video "$LEFT" --audio "$WAV51" \
     --encrypt --key-out "$ENCKEYS"
 
+# encrypted and signed for real: the dcp_not_signed fixture's baseline. A real
+# dcpwizard build, not a synthetic signature, so its signature verifies.
+rm -f "$SRCDIR/enc_signed_keys.json"
+build "$VALID/dcp_encrypted_signed" \
+    --title "CTPEncSig_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
+    --content-type TST --video "$LEFT" --audio "$WAV51" \
+    --encrypt --key-out "$SRCDIR/enc_signed_keys.json" \
+    --signer-cert "$CERTS/signer.pem" --signer-key "$CERTS/signer.key" \
+    --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem"
+
 # subcommand-only fixtures: KDMs with shifted validity windows (kdm subcommand)
-# and audio exhibiting clipping/silence (auto-qc). dcpwizard refuses a window
-# outside the signer chain's life or starting the day the chain starts, so one
-# template KDM is generated inside the chain's window and the fixtures are the
-# template with the window rewritten to fixed dates. dcpdoctor's kdm checks read
-# the window, digests and schema, not the signature, so the rewrite changes
-# nothing else it looks at.
+# and audio exhibiting clipping/silence (auto-qc). All three KDMs are real
+# dcpwizard output with intact signatures. Their signing chain runs 2020-2040
+# (written by corpus_gen.py, same generator as the certificate fixtures) because
+# dcpwizard refuses a window outside the signer chain's life or starting the
+# chain's own first day, which rules out a currently-valid window under the
+# freshly generated $CERTS chain.
 SUBCMD="$CORPUS/subcmd"
 rm -rf "$SUBCMD"; mkdir -p "$SUBCMD"
+KDM_CERTS="$SRCDIR/kdm_certs"
+rm -rf "$KDM_CERTS"
+python3 "$SCRIPT_DIR/corpus_gen.py" --write-kdm-chain "$KDM_CERTS"
 ENC_CPLID=$(grep -oE 'urn:uuid:[0-9a-fA-F-]+' "$CORPUS/.enc_src"/CPL_*.xml | head -1)
 gen_kdm() {
     "$DCPWIZARD" kdm --cpl-id "$ENC_CPLID" --content-title "CTPEnc" \
-        --cert "$CERTS/signer.pem" --signer-cert "$CERTS/signer.pem" \
-        --signer-key "$CERTS/signer.key" \
-        --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem" \
+        --cert "$KDM_CERTS/signer.pem" --signer-cert "$KDM_CERTS/signer.pem" \
+        --signer-key "$KDM_CERTS/signer.key" \
+        --signer-chain "$KDM_CERTS/intermediate.pem" --signer-chain "$KDM_CERTS/root.pem" \
         --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3" >/dev/null
 }
-iso() { date -u -d "$1" +%Y-%m-%dT%H:%M:%S+00:00; }
-CERT_START=$(openssl x509 -in "$CERTS/signer.pem" -noout -startdate | cut -d= -f2)
-CERT_END=$(openssl x509 -in "$CERTS/signer.pem" -noout -enddate | cut -d= -f2)
-KDM_TEMPLATE="$SUBCMD/.kdm_template.xml"
-gen_kdm "$(iso "$CERT_START + 1 day")" "$(iso "$CERT_END - 1 day")" "$KDM_TEMPLATE"
-set_kdm_window() {
-    sed -E -e "s|(<ContentKeysNotValidBefore>)[^<]*|\1$2|" \
-           -e "s|(<ContentKeysNotValidAfter>)[^<]*|\1$3|" "$KDM_TEMPLATE" > "$1"
-    grep -q "$2" "$1" && grep -q "$3" "$1"
-}
-set_kdm_window "$SUBCMD/kdm_expired.xml" "2020-01-01T00:00:00+00:00" "2021-01-01T00:00:00+00:00"
-set_kdm_window "$SUBCMD/kdm_future.xml" "2090-01-01T00:00:00+00:00" "2091-01-01T00:00:00+00:00"
-set_kdm_window "$SUBCMD/kdm_valid.xml" "2024-01-01T00:00:00+00:00" "2090-01-01T00:00:00+00:00"
-rm -f "$KDM_TEMPLATE"
+gen_kdm "2020-06-01T00:00:00+00:00" "2021-06-01T00:00:00+00:00" "$SUBCMD/kdm_expired.xml"
+gen_kdm "2035-01-01T00:00:00+00:00" "2039-01-01T00:00:00+00:00" "$SUBCMD/kdm_future.xml"
+gen_kdm "2024-01-01T00:00:00+00:00" "2039-01-01T00:00:00+00:00" "$SUBCMD/kdm_valid.xml"
 # full-scale (clipping), near-silent, and a clean -12 dBFS reference tone
 ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
        -af "volume=40dB,alimiter=limit=1.0" -c:a pcm_s24le "$SUBCMD/clip.wav" 2>/dev/null

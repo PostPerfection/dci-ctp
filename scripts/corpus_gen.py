@@ -43,17 +43,6 @@ DOM_BASE = os.path.join(CORPUS, "valid", "dcp_dom_ov")
 DOM_INTEROP = os.path.join(CORPUS, "valid", "dcp_dom_interop")
 SIGNED_BASE = os.path.join(CORPUS, "valid", "dcp_signed")
 
-# an enveloped ds:Signature is enough for check_dcp_signed (presence-only); its
-# value need not verify. dcpwizard emits unsigned encrypted packages, so the
-# signed baseline is synthesised by injecting this.
-FAKE_SIG = (
-    '<ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">'
-    '<ds:SignedInfo><ds:Reference URI="">'
-    "<ds:DigestValue>AAAA</ds:DigestValue></ds:Reference></ds:SignedInfo>"
-    "<ds:SignatureValue>AA==</ds:SignatureValue></ds:Signature>"
-)
-
-
 def sha1_b64(path):
     h = hashlib.sha1()
     with open(path, "rb") as f:
@@ -396,18 +385,69 @@ def strip_signature(xml):
     return xml
 
 
-def side_effects(d):
+def side_effects(d, src):
     """Codes the corpus machinery leaves on a package whatever defect the fixture
     is for, so no fixture has to declare them by hand. Skipping the reseal leaves
     a stale chunk Length or PKL record, and the Bv2.1 four-second subtitle lead-in
-    is unreachable in a 48-frame package, so any timed text at all trips it."""
+    is unreachable in a 48-frame package, so any timed text at all trips it.
+    Editing a signed CPL or PKL (the reseal does, on every fixture cloned from a
+    signed source) breaks its signature, which dcpdoctor verifies."""
     codes = set()
     if assetmap_length_disagrees(d):
         codes.add("assetmap_size_mismatch")
     codes |= pkl_records_disagree(d)
     if carries_timed_text(d):
         codes.add("subtitle_first_event_early")
+    if declared_font_unresolvable(d):
+        codes.add("subtitle_font_missing")
+    if signed_document_modified(d, src):
+        codes.add("signature_invalid")
     return codes
+
+
+def declared_font_unresolvable(d):
+    """True when a subtitle document declares a LoadFont that resolves to no
+    font in the package: the injected timed-text documents name a font urn no
+    fixture adds an asset for, and dcpdoctor reports the glyph pass skipping."""
+    ids = set(assetmap_id_to_path(d)) if os.path.isfile(am_path(d)) else set()
+    for name in os.listdir(d):
+        if not name.lower().endswith(".xml"):
+            continue
+        try:
+            content = read(os.path.join(d, name))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "<SubtitleReel" not in content and "<DCSubtitle" not in content:
+            continue
+        for m in re.finditer(r"<LoadFont[^>]*URI=\"([^\"]+)\"", content):
+            if not os.path.isfile(os.path.join(d, m.group(1))):
+                return True
+        for m in re.finditer(r"<LoadFont[^>]*>([^<]+)</LoadFont>", content):
+            if m.group(1).strip() not in ids:
+                return True
+    return False
+
+
+DSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#"
+
+
+def signed_document_modified(d, src):
+    """True when a CPL or PKL carrying a ds:Signature is not byte-identical to
+    the source file it was cloned from. Enveloped signatures cover the whole
+    document, so any edit after signing invalidates them."""
+    for name in sorted(os.listdir(d)):
+        if not name.lower().endswith(".xml"):
+            continue
+        try:
+            content = read(os.path.join(d, name))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if DSIG_NAMESPACE not in content:
+            continue
+        original = os.path.join(src, name)
+        if not os.path.isfile(original) or read(original) != content:
+            return True
+    return False
 
 
 def carries_timed_text(d):
@@ -738,6 +778,36 @@ def certificate_chain(*, leaf_key_size=2048, leaf_common_name=LEAF_COMMON_NAME,
     leaf = issue_certificate(leaf_name, leaf_key, intermediate_name, intermediate_key, 3,
                              leaf_basic_constraints_ca, leaf_key_usage)
     return [leaf, intermediate, root]
+
+
+def write_kdm_signing_chain(directory):
+    """A conformant chain as PEM files for dcpwizard's kdm subcommand. Its life
+    starts in 2020, so dcpwizard accepts a KDM window that is valid today: the
+    chain `dcpwizard certificate chain` writes starts the day it runs, and
+    dcpwizard refuses a window starting on the chain's own first day."""
+    root, intermediate, intermediate_name, intermediate_key = certificate_authorities()
+    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    leaf_name = certificate_name(LEAF_COMMON_NAME, CERT_ORGANIZATION,
+                                 public_key_thumbprint(leaf_key.public_key()))
+    leaf = issue_certificate(leaf_name, leaf_key, intermediate_name, intermediate_key, 3,
+                             False, LEAF_KEY_USAGE)
+    os.makedirs(directory, exist_ok=True)
+
+    def pem(der):
+        return x509.load_der_x509_certificate(der).public_bytes(
+            serialization.Encoding.PEM)
+
+    with open(os.path.join(directory, "signer.pem"), "wb") as f:
+        f.write(pem(leaf))
+    with open(os.path.join(directory, "intermediate.pem"), "wb") as f:
+        f.write(pem(intermediate))
+    with open(os.path.join(directory, "root.pem"), "wb") as f:
+        f.write(pem(root))
+    with open(os.path.join(directory, "signer.key"), "wb") as f:
+        f.write(leaf_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption()))
 
 
 def signature_with_chain(ders):
@@ -1454,7 +1524,7 @@ def _(d):
 @fixture("dcp_not_signed", ["dcp_not_signed"], [],
          "Real encrypted DCP built by dcpwizard: it carries KeyIds but no "
          "CPL/PKL ds:Signature, so check_dcp_signed fires. The baseline is the "
-         "same package with synthetic signatures injected (encrypted + signed).",
+         "same content built encrypted and signed by dcpwizard.",
          src=ENC_SRC, reseal_after=False, also=["encryption_detected", "kdm_required"],
          baseline="valid/dcp_encrypted_signed")
 def _(d):
@@ -1654,22 +1724,11 @@ def _(d):
 @fixture("j2k_legacy_ffff", ["j2k_legacy_ffff"], ["--check-mxf"],
          "0xFF 0xFF written into the first frame's entropy data at a byte position "
          "254 mod 256 from the codestream start, the Dolby Cat. 862 legacy-decoder "
-         "condition (SMPTE Legacy Compatibility Note 1)",
-         copy_mxf=True)
+         "condition (SMPTE Legacy Compatibility Note 1). The raw marker prefix "
+         "also desyncs the marker walk, which reports stopping early",
+         also=["check_skipped"], copy_mxf=True)
 def _(d):
     patch_j2k_legacy_ffff(picture_mxf(d))
-
-
-def build_encrypted_signed_baseline():
-    """The dcp_not_signed baseline: clone the encrypted source and inject an
-    enveloped ds:Signature into the CPL and PKL so the package reads as signed."""
-    dest = os.path.join(CORPUS, "valid", "dcp_encrypted_signed")
-    clone(dest, src=ENC_SRC)
-    cp = cpl_path(dest)
-    write(cp, read(cp).replace("</CompositionPlaylist>", FAKE_SIG + "</CompositionPlaylist>", 1))
-    pk = pkl_path(dest)
-    write(pk, read(pk).replace("</PackingList>", FAKE_SIG + "</PackingList>", 1))
-    reseal(dest)  # refresh the CPL hash the PKL carries
 
 
 # the markers dcpwizard leaves out, with offsets inside the 48-frame base. Only
@@ -1706,36 +1765,10 @@ def build_certificate_chain_baseline():
     reseal(dest)
 
 
-def fixup_stereo_order(d):
-    """dcpwizard emits the 429-10 MainStereoscopicPicture before MainSound, but
-    the 429-16 CPL schema matches the stereo element via xs:any (which must follow
-    the known track elements), so real 3D CPLs put MainSound first. Reorder to the
-    schema-valid form and reseal. Hand-edit workaround for a dcpwizard quirk."""
-    p = cpl_path(d)
-    s = read(p)
-    stereo = re.search(
-        r"[ \t]*<[\w-]*:?MainStereoscopicPicture[\s\S]*?</[\w-]*:?MainStereoscopicPicture>\n", s
-    )
-    sound = re.search(r"[ \t]*<MainSound>[\s\S]*?</MainSound>\n", s)
-    if stereo and sound:
-        s = s.replace(stereo.group(0) + sound.group(0), sound.group(0) + stereo.group(0))
-        write(p, s)
-    reseal(d)
-
-
 def main():
     if not os.path.isdir(BASE):
         print(f"ERROR: base DCP missing at {BASE}; run build_corpus.sh first", file=sys.stderr)
         sys.exit(1)
-
-    # make the real 3D packages schema-valid (dcpwizard element-order quirk)
-    for stereo_dir in (THREE_D, BITRATE_SRC):
-        if os.path.isdir(stereo_dir):
-            fixup_stereo_order(stereo_dir)
-
-    # the dcp_not_signed baseline (encrypted + synthetic signatures)
-    if os.path.isdir(ENC_SRC):
-        build_encrypted_signed_baseline()
 
     # the certificate-rule baseline (base DCP signed with a conformant chain)
     build_certificate_chain_baseline()
@@ -1802,7 +1835,7 @@ def main():
         # read off the built package rather than declared per fixture: the
         # DCP-o-matic variants reuse these same mutation functions and differ in
         # what they leave behind, so a hand-written list would drift from them
-        also = sorted(set(f["also"]) | (side_effects(d) - set(f["codes"])))
+        also = sorted(set(f["also"]) | (side_effects(d, src) - set(f["codes"])))
         manifest["fixtures"].append({
             "dir": f"invalid/{name}",
             "package_type": "dcp",
@@ -1913,4 +1946,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--write-kdm-chain":
+        write_kdm_signing_chain(sys.argv[2])
+    else:
+        main()
