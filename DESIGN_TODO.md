@@ -1,12 +1,13 @@
 # Planned
 
 The per-error-code corpus (`scripts/build_corpus.sh` + `run_corpus.py`) proves
-100 of dcpdoctor 0.5.0's 119 codes fire non-vacuously (each code is asserted
+100 of dcpdoctor's 120 codes fire non-vacuously (each code is asserted
 absent on the fixture's valid baseline): 89 via isolated synthetic + subcommand
 fixtures and 11 more via the ClairMeta ECL reference packages. `ALL_CODES` is the
 full `Code::as_str` enum, so the headline count and the uncovered list share one
-denominator (100 + 19 = 119), and every uncovered code carries a reason in
-`UNCOVERED_REASONS`. Most fixtures run through `dcpdoctor validate`; four
+denominator (100 + 20 = 120), and every uncovered code carries a reason in
+`UNCOVERED_REASONS`. The 120th code, `check_skipped`, landed after 0.5.0 with
+the no-silent-skips pass. Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
 manifest section (kdm and auto-qc). Baselines are all clean under
 `--strict --check-mxf`: dcpwizard labeled 5.1 (`valid/dcp_ov`), stereoscopic 3D

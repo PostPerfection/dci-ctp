@@ -64,15 +64,23 @@ unwired), and that the fixture emits nothing beyond its expected codes, its
 declared `also_emits` and whatever its baseline already emits. This is the
 trust-critical proof that each check works and none is dead.
 
+The harness only refuses or reports, it never repairs a product's output. A
+mutation that injects the defect under test is the corpus working as designed. An
+edit that fixes what dcpwizard or dcpdoctor got wrong hides the defect from every
+consumer of the corpus: one such edit (reordering the 429-10 stereo element to
+where the schema requires it) hid a schema violation on every 3D package until it
+was found by hand. If a generated package needs correcting, the bug is the
+generator's and gets fixed there.
+
 ```bash
 DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage against dcpdoctor 0.5.0: 100 of 119 codes are exercised (89 by isolated
+Coverage against dcpdoctor master: 100 of 120 codes are exercised (89 by isolated
 synthetic + subcommand fixtures, 11 more by the ClairMeta reference packages).
 `ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
-count and the uncovered list share one denominator (100 + 19 = 119). The 19
+count and the uncovered list share one denominator (100 + 20 = 120). The 20
 uncovered each carry a reason in `UNCOVERED_REASONS`, which `run_corpus.py`
 prints: some ride along on another fixture and are declared in its `also_emits`
 (`cpl_pkl_hash_mismatch`, `j2k_parameters_vary`, `cpl_active_area_invalid`,
@@ -130,6 +138,26 @@ under "Differential vs ClairMeta", so the numbers live in one place.
 The differential runs as an optional, non-blocking CI job (uploads the report as
 an artifact); the ECL packages aren't fetched in CI, so it runs on the baselines
 and fixtures there.
+
+## Signature survey vs xmlsec1
+
+`scripts/signature_survey.py` walks the given roots (default: the corpus) for XML
+documents carrying an XML-DSig signature, gets a per-document verdict from both
+dcpdoctor and `xmlsec1 --verify`, and exits nonzero on any document where one
+tool verifies and the other rejects. Documents xmlsec1 cannot process (rsa-sha1
+Interop signatures under a strict crypto policy, Signature elements it cannot
+parse) render no verdict and are listed instead of compared, as are bare CPL/PKL
+files outside any package.
+
+```bash
+DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor \
+python3 scripts/signature_survey.py corpus ../dcpdoctor/tests
+```
+
+This is a standing, blocking CI step (in the `synthetic` job), not a one-off
+investigation: the first run of this comparison found verifier defects no unit
+test had (see dcpdoctor's DESIGN_TODO, "Document signatures verify against the
+document"). Point it at the ECL clone too when that is on disk.
 
 ## Encryption + KDM verification
 
