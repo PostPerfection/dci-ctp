@@ -245,7 +245,9 @@ where ClairMeta rejects the package outright.
   `reseal` rewrites the XML, so every mutated DoM package carries a stale
   signature. It fires on 50 DoM packages in all and on neither clean DoM
   baseline, so it tracks the reseal and not the vendor. dcpdoctor's default
-  signature check is presence-only, which is why it passes them.
+  signature check is presence-only, which is why it passes them. Recorded as an
+  open gap in dcpdoctor's DESIGN_TODO (document signatures are not verified).
+  When dcpdoctor verifies, these 50 move to BOTH_FAIL.
 - DCPDOCTOR_ONLY_FAIL grew from 18 to 21, entirely on reference packages and
   entirely from 0.5.0's new checks: ECL08 on `timed_text_id_mismatch`, ECL29 on
   `partially_encrypted` and `subtitle_overlaps_reel`, ECL33 on
