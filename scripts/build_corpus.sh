@@ -115,8 +115,12 @@ build "$CORPUS/.enc_src" \
     --encrypt --key-out "$ENCKEYS"
 
 # subcommand-only fixtures: KDMs with shifted validity windows (kdm subcommand)
-# and audio exhibiting clipping/silence (auto-qc). Windows use fixed dates so the
-# expired/future verdicts stay stable regardless of the current time.
+# and audio exhibiting clipping/silence (auto-qc). dcpwizard refuses a window
+# outside the signer chain's life or starting the day the chain starts, so one
+# template KDM is generated inside the chain's window and the fixtures are the
+# template with the window rewritten to fixed dates. dcpdoctor's kdm checks read
+# the window, digests and schema, not the signature, so the rewrite changes
+# nothing else it looks at.
 SUBCMD="$CORPUS/subcmd"
 rm -rf "$SUBCMD"; mkdir -p "$SUBCMD"
 ENC_CPLID=$(grep -oE 'urn:uuid:[0-9a-fA-F-]+' "$CORPUS/.enc_src"/CPL_*.xml | head -1)
@@ -125,11 +129,22 @@ gen_kdm() {
         --cert "$CERTS/signer.pem" --signer-cert "$CERTS/signer.pem" \
         --signer-key "$CERTS/signer.key" \
         --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem" \
-        --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3" >/dev/null 2>&1
+        --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3" >/dev/null
 }
-gen_kdm "2020-01-01T00:00:00+00:00" "2021-01-01T00:00:00+00:00" "$SUBCMD/kdm_expired.xml"
-gen_kdm "2090-01-01T00:00:00+00:00" "2091-01-01T00:00:00+00:00" "$SUBCMD/kdm_future.xml"
-gen_kdm "2024-01-01T00:00:00+00:00" "2090-01-01T00:00:00+00:00" "$SUBCMD/kdm_valid.xml"
+iso() { date -u -d "$1" +%Y-%m-%dT%H:%M:%S+00:00; }
+CERT_START=$(openssl x509 -in "$CERTS/signer.pem" -noout -startdate | cut -d= -f2)
+CERT_END=$(openssl x509 -in "$CERTS/signer.pem" -noout -enddate | cut -d= -f2)
+KDM_TEMPLATE="$SUBCMD/.kdm_template.xml"
+gen_kdm "$(iso "$CERT_START + 1 day")" "$(iso "$CERT_END - 1 day")" "$KDM_TEMPLATE"
+set_kdm_window() {
+    sed -E -e "s|(<ContentKeysNotValidBefore>)[^<]*|\1$2|" \
+           -e "s|(<ContentKeysNotValidAfter>)[^<]*|\1$3|" "$KDM_TEMPLATE" > "$1"
+    grep -q "$2" "$1" && grep -q "$3" "$1"
+}
+set_kdm_window "$SUBCMD/kdm_expired.xml" "2020-01-01T00:00:00+00:00" "2021-01-01T00:00:00+00:00"
+set_kdm_window "$SUBCMD/kdm_future.xml" "2090-01-01T00:00:00+00:00" "2091-01-01T00:00:00+00:00"
+set_kdm_window "$SUBCMD/kdm_valid.xml" "2024-01-01T00:00:00+00:00" "2090-01-01T00:00:00+00:00"
+rm -f "$KDM_TEMPLATE"
 # full-scale (clipping), near-silent, and a clean -12 dBFS reference tone
 ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
        -af "volume=40dB,alimiter=limit=1.0" -c:a pcm_s24le "$SUBCMD/clip.wav" 2>/dev/null
