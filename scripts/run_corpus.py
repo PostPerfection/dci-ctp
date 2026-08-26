@@ -88,7 +88,6 @@ ALL_CODES = [
 # codes not covered by an isolated `dcpdoctor validate` fixture, with why (honest
 # gaps).
 UNCOVERED_REASONS = {
-    "mxf_hash_mismatch": "covered via --manifest compare (manifest_size_mismatch); no plain-validate path",
     "certificate_expired": "fires on real expired cert chains (reference packages); no minimal fixture",
     "certificate_signature_algorithm_invalid": "deep cert-rule check; fires on real malformed chains only",
     "schema_validation_skipped": "fires only when no schema directory is found; dcpdoctor ships schemas/, so the pass always runs here",
