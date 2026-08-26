@@ -173,14 +173,26 @@ def patch_j2k_component_count(mxf_path):
     open(mxf_path, "wb").write(data)
 
 
+CODESTREAM_START_MARKERS = b"\xff\x4f\xff\x51"  # SOC immediately followed by SIZ
+
+
+def codestream_bounds(data):
+    """(start, end) of every J2K codestream in a picture MXF, located by the
+    SOC+SIZ marker pair. Each one runs up to the next frame's."""
+    starts = []
+    at = data.find(CODESTREAM_START_MARKERS)
+    while at >= 0:
+        starts.append(at)
+        at = data.find(CODESTREAM_START_MARKERS, at + len(CODESTREAM_START_MARKERS))
+    return list(zip(starts, starts[1:] + [len(data)]))
+
+
 def first_codestream(mxf_path):
-    """(bytes, start, end) of the first J2K codestream in a picture MXF, located
-    by the SOC+SIZ marker pair and bounded by the next frame's."""
+    """(bytes, start, end) of the first J2K codestream in a picture MXF."""
     data = bytearray(open(mxf_path, "rb").read())
-    soc = data.find(b"\xff\x4f\xff\x51")
-    assert soc >= 0, f"no J2K codestream in {mxf_path}"
-    nxt = data.find(b"\xff\x4f\xff\x51", soc + 4)
-    return data, soc, nxt if nxt >= 0 else len(data)
+    bounds = codestream_bounds(data)
+    assert bounds, f"no J2K codestream in {mxf_path}"
+    return (data, *bounds[0])
 
 
 def main_header_marker(data, start, end, marker):
@@ -209,6 +221,46 @@ def patch_j2k_guard_bits(mxf_path):
     sqcd = qcd + 4  # FF5C, Lqcd(2), then Sqcd
     assert data[sqcd] >> 5 == 1, f"first frame does not declare 1 guard bit ({data[sqcd] >> 5})"
     data[sqcd] &= 0x1F
+    open(mxf_path, "wb").write(data)
+
+
+TLM_MARKER = b"\xff\x55"
+COMMENT_MARKER = b"\xff\x64"
+
+
+def patch_j2k_tlm_to_comment(mxf_path):
+    """Rewrite every frame's TLM marker code as a COM comment marker. Only the
+    two marker bytes change, so the segment keeps its length and so do the
+    codestream and the MXF's KLV lengths, and every frame loses its TLM together:
+    patching frame 0 alone would leave the frames disagreeing about tlm_present
+    instead."""
+    data = bytearray(open(mxf_path, "rb").read())
+    bounds = codestream_bounds(data)
+    assert bounds, f"no J2K codestream in {mxf_path}"
+    for start, end in bounds:
+        tlm = main_header_marker(data, start, end, TLM_MARKER)
+        assert tlm is not None, f"a codestream in {mxf_path} carries no TLM marker"
+        data[tlm:tlm + len(COMMENT_MARKER)] = COMMENT_MARKER
+    open(mxf_path, "wb").write(data)
+
+
+COD_MARKER = b"\xff\x52"
+# the multiple-component-transform flag's position in the COD segment's
+# parameters: Scod(1) and the first three SGcod bytes come before it
+MULTIPLE_COMPONENT_TRANSFORM_OFFSET = 4
+
+
+def patch_j2k_multiple_component_transform(mxf_path):
+    """Turn off the first frame's multiple-component-transform flag. Both values
+    are legal T.800, the byte count is untouched, and dcpdoctor reads the flag
+    only to compare frames and to summarise them, so the frames disagreeing is
+    all that is left to report."""
+    data, start, end = first_codestream(mxf_path)
+    cod = main_header_marker(data, start, end, COD_MARKER)
+    assert cod is not None, f"no COD marker in the first frame of {mxf_path}"
+    at = cod + 4 + MULTIPLE_COMPONENT_TRANSFORM_OFFSET  # FF52, Lcod(2), then the parameters
+    assert data[at] == 1, f"first frame of {mxf_path} already has no component transform"
+    data[at] = 0
     open(mxf_path, "wb").write(data)
 
 
@@ -325,12 +377,15 @@ def reseal_cpl_hashes(d):
     write(p, re.sub(r"<((?:[\w.-]+:)?)Hash>[^<]*</(?:[\w.-]+:)?Hash>", fix_hash, s))
 
 
-def reseal(d):
+def reseal(d, reseal_cpl=True):
     """Recompute every CPL and PKL asset Hash+Size, then every ASSETMAP chunk
     Length, from the actual files so the only remaining defect is the intended
     one. Assets whose file is absent are left as-is (their hash check is skipped
-    by dcpdoctor anyway)."""
-    reseal_cpl_hashes(d)  # before the PKL, so the PKL hashes the new CPL
+    by dcpdoctor anyway). reseal_cpl=False leaves the CPL's own asset hashes
+    alone, so a fixture whose defect is one of them survives the reseal while the
+    PKL still records the CPL the package ships."""
+    if reseal_cpl:
+        reseal_cpl_hashes(d)  # before the PKL, so the PKL hashes the new CPL
     id2path = assetmap_id_to_path(d)
     pkl = pkl_path(d)
     s = read(pkl)
@@ -520,6 +575,39 @@ def cpl_asset_id(d, element):
 
 def pic_id(d):
     return f"urn:uuid:{cpl_asset_id(d, 'MainPicture')}"
+
+
+def edit_cpl_element(d, element, rewrite):
+    """Rewrite the body of a CPL element through `rewrite`, keeping whatever
+    namespace prefix it carries."""
+    p = cpl_path(d)
+    pattern = rf"<((?:[\w.-]+:)?){element}>([\s\S]*?)</(?:[\w.-]+:)?{element}>"
+
+    def replace(m):
+        prefix, body = m.group(1), m.group(2)
+        return f"<{prefix}{element}>{rewrite(body)}</{prefix}{element}>"
+
+    s, count = re.subn(pattern, replace, read(p), count=1)
+    assert count == 1, f"no <{element}> in the CPL of {d}"
+    write(p, s)
+
+
+def set_picture_hash(d, value):
+    """Set the CPL's MainPicture <Hash>, or remove the element when value is
+    None. Any fixture calling this needs reseal_cpl=False, or the reseal writes
+    the file's real digest straight back."""
+    def rewrite(body):
+        if value is None:
+            edited, count = re.subn(
+                r"[ \t]*<(?:[\w.-]+:)?Hash>[^<]*</(?:[\w.-]+:)?Hash>\n?", "", body, count=1)
+        else:
+            edited, count = re.subn(
+                r"<((?:[\w.-]+:)?)Hash>[^<]*</(?:[\w.-]+:)?Hash>",
+                rf"<\g<1>Hash>{value}</\g<1>Hash>", body, count=1)
+        assert count == 1, f"the CPL MainPicture in {d} carries no <Hash>"
+        return edited
+
+    edit_cpl_element(d, "MainPicture", rewrite)
 
 
 SUB_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444444"
@@ -844,13 +932,14 @@ def sign_cpl_with_chain(d, ders):
 FIXTURES = []
 
 
-def fixture(name, codes, flags, notes, reseal_after=True, copy_mxf=False,
-            also=None, baseline="valid/dcp_ov", baseline_flags=None, src=BASE,
-            requires=None, vendor_portable=True):
+def fixture(name, codes, flags, notes, reseal_after=True, reseal_cpl=True,
+            copy_mxf=False, also=None, baseline="valid/dcp_ov",
+            baseline_flags=None, src=BASE, requires=None, vendor_portable=True):
     def deco(fn):
         FIXTURES.append({
             "name": name, "codes": codes, "flags": flags, "notes": notes,
-            "reseal": reseal_after, "copy_mxf": copy_mxf, "fn": fn,
+            "reseal": reseal_after, "reseal_cpl": reseal_cpl,
+            "copy_mxf": copy_mxf, "fn": fn,
             "also": also or [], "baseline": baseline,
             "baseline_flags": baseline_flags, "src": src,
             "requires": requires or [], "vendor_portable": vendor_portable,
@@ -1040,6 +1129,50 @@ def _(d):
     s = re.sub(r"(<(?:[\w.-]+:)?MainPicture\b[^>]*>[\s\S]*?<(?:[\w.-]+:)?EditRate>)24 1",
                r"\g<1>13 1", read(p), count=1)
     write(p, s)
+
+
+# a well-formed base64 SHA-1 that is no file's digest
+WRONG_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+
+@fixture("cpl_pkl_hash_mismatch", ["cpl_pkl_hash_mismatch"], [],
+         "CPL <Hash> for the picture corrupted while the PKL keeps the file's "
+         "real digest, so the two disagree over an asset that is itself intact. "
+         "The reseal skips the CPL's own hashes and still rewrites the PKL's "
+         "record of the CPL, so no PKL code rides along.",
+         reseal_cpl=False)
+def _(d):
+    set_picture_hash(d, WRONG_HASH)
+
+
+@fixture("cpl_missing_hash", ["cpl_missing_hash"], [],
+         "CPL <Hash> for the picture deleted. dcpwizard's stereoscopic CPL omits "
+         "it too, which is why the code fires on the valid/dcp_3d baseline and "
+         "has to be isolated on the 5.1 base instead.",
+         reseal_cpl=False)
+def _(d):
+    set_picture_hash(d, None)
+
+
+# wider than any picture the corpus wraps, and even, so the edge-parity half of
+# the check stays quiet
+ACTIVE_AREA_WIDTH_OVER_ESSENCE = 4096
+
+
+@fixture("cpl_active_area_invalid", ["cpl_active_area_invalid"], [],
+         "MainPictureActiveArea Width set to 4096 against the 2048-wide picture "
+         "essence. The value is even, so only the size comparison fires, and the "
+         "CompositionMetadataAsset check reads EditRate and IntrinsicDuration "
+         "only, so it stays quiet.")
+def _(d):
+    def widen(body):
+        edited, count = re.subn(r"<((?:[\w.-]+:)?)Width>[^<]*</(?:[\w.-]+:)?Width>",
+                                rf"<\g<1>Width>{ACTIVE_AREA_WIDTH_OVER_ESSENCE}</\g<1>Width>",
+                                body, count=1)
+        assert count == 1, f"the MainPictureActiveArea in {d} carries no <Width>"
+        return edited
+
+    edit_cpl_element(d, "MainPictureActiveArea", widen)
 
 
 NON_ISDCF_TITLE = "BadNameNoFields"
@@ -1558,6 +1691,26 @@ def _(d):
     patch_j2k_component_count(picture_mxf(d))
 
 
+@fixture("j2k_missing_tlm", ["j2k_missing_tlm"], ["--check-mxf", "--deep-j2k"],
+         "Every frame's TLM marker code rewritten as a COM comment marker of the "
+         "same length, so the codestream and the MXF's KLV lengths are unchanged "
+         "and the essence simply carries no tile-part lengths. Doing it to every "
+         "frame is what keeps j2k_parameters_vary quiet.", copy_mxf=True)
+def _(d):
+    patch_j2k_tlm_to_comment(picture_mxf(d))
+
+
+@fixture("j2k_parameters_vary", ["j2k_parameters_vary"],
+         ["--check-mxf", "--deep-j2k"],
+         "First frame's COD turns the multiple-component transform off where "
+         "every other frame has it on. It is the one parameter the per-frame "
+         "comparison holds constant that no other check reads, so the frames "
+         "disagreeing is the only defect. Codeblock size and decomposition "
+         "levels both draw a j2k_invalid_profile of their own.", copy_mxf=True)
+def _(d):
+    patch_j2k_multiple_component_transform(picture_mxf(d))
+
+
 @fixture("picture_invalid_frame_rate", ["picture_invalid_frame_rate"], [],
          "IMF IMP whose CPL EditRate (25 1) differs from the 24 fps picture "
          "essence; the IMF validate path (imf.rs) flags the pic/edit-rate "
@@ -1831,7 +1984,7 @@ def main():
         d = clone(os.path.join(inv, name), copy_mxf=f["copy_mxf"], src=src)
         f["fn"](d)
         if f["reseal"]:
-            reseal(d)
+            reseal(d, reseal_cpl=f["reseal_cpl"])
         # read off the built package rather than declared per fixture: the
         # DCP-o-matic variants reuse these same mutation functions and differ in
         # what they leave behind, so a hand-written list would drift from them

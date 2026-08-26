@@ -77,16 +77,16 @@ DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage against dcpdoctor master: 100 of 120 codes are exercised (89 by isolated
+Coverage against dcpdoctor master: 105 of 120 codes are exercised (94 by isolated
 synthetic + subcommand fixtures, 11 more by the ClairMeta reference packages).
 `ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
-count and the uncovered list share one denominator (100 + 20 = 120). The 20
+count and the uncovered list share one denominator (105 + 15 = 120). The 15
 uncovered each carry a reason in `UNCOVERED_REASONS`, which `run_corpus.py`
-prints: some ride along on another fixture and are declared in its `also_emits`
-(`cpl_pkl_hash_mismatch`, `j2k_parameters_vary`, `cpl_active_area_invalid`,
-`j2k_missing_tlm`), the rest need essence or a document shape the corpus does not
-build yet (4K stereoscopic, MXF-wrapped timed text, multi-reel subtitle layouts,
-crafted KDMs). Most fixtures run through `dcpdoctor validate`; four codes
+prints: one rides along on another fixture and is declared in its `also_emits`
+(`check_skipped`, on `j2k_legacy_ffff`, whose injected 0xFFFF stops the marker
+walk), the rest need essence or a document shape the corpus does not build yet
+(4K stereoscopic, MXF-wrapped timed text, multi-reel subtitle layouts, crafted
+KDMs). Most fixtures run through `dcpdoctor validate`; four codes
 reachable only through other subcommands (kdm, auto-qc) use a
 `subcommand_fixtures` manifest section. A code that reports a measurement rather
 than a verdict is covered by the flag that gates it: the fixture and its baseline

@@ -63,11 +63,11 @@ env). These become the shared corpus for differential testing against
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 
-## Coverage: 87 of 87 codes
+## Coverage: 105 of 120 codes
 
-80 codes have isolated synthetic or subcommand fixtures, and 7 more come from
-the ClairMeta reference packages. `run_corpus.py` prints the live list and a reason
-per gap, and there are no gaps left.
+94 codes have isolated synthetic or subcommand fixtures, and 11 more come from
+the ClairMeta reference packages. `run_corpus.py` prints the live list and a
+reason per gap, and the 15 remaining gaps are in `UNCOVERED_REASONS`.
 
 Fixture machinery beyond the plain clone+mutate:
 

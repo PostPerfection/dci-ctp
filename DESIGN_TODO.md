@@ -1,11 +1,11 @@
 # Planned
 
 The per-error-code corpus (`scripts/build_corpus.sh` + `run_corpus.py`) proves
-100 of dcpdoctor's 120 codes fire non-vacuously (each code is asserted
-absent on the fixture's valid baseline): 89 via isolated synthetic + subcommand
+105 of dcpdoctor's 120 codes fire non-vacuously (each code is asserted
+absent on the fixture's valid baseline): 94 via isolated synthetic + subcommand
 fixtures and 11 more via the ClairMeta ECL reference packages. `ALL_CODES` is the
 full `Code::as_str` enum, so the headline count and the uncovered list share one
-denominator (100 + 20 = 120), and every uncovered code carries a reason in
+denominator (105 + 15 = 120), and every uncovered code carries a reason in
 `UNCOVERED_REASONS`. The 120th code, `check_skipped`, landed after 0.5.0 with
 the no-silent-skips pass. Most fixtures run through `dcpdoctor validate`; four
 codes reachable only through other subcommands use a `subcommand_fixtures`
@@ -14,16 +14,16 @@ manifest section (kdm and auto-qc). Baselines are all clean under
 429-10 (`valid/dcp_3d`), Atmos AuxData 429-18 (`valid/dcp_atmos`) and the signed
 package (`valid/dcp_signed`), plus DCP-o-matic SMPTE (`valid/dcp_dom_ov`) and
 Interop (`valid/dcp_dom_interop`), and the synthesised `valid/dcp_all_markers`.
-338 harness checks pass over 147 fixtures, 7 baselines, 4 subcommand fixtures and
+358 harness checks pass over 157 fixtures, 7 baselines, 4 subcommand fixtures and
 28 reference packages.
 
 ## Two vendors, and what that covers (2026-08-12)
 
 Every fixture built from the shared base and checked against the shared baseline
-is generated a second time from a DCP-o-matic base, so 128 of the 147 fixtures
-(64 pairs) assert their code on two mastering tools' output. Both DoM baselines
+is generated a second time from a DCP-o-matic base, so 138 of the 157 fixtures
+(69 pairs) assert their code on two mastering tools' output. Both DoM baselines
 validate clean and are in the manifest: `valid/dcp_dom_ov` (SMPTE) and
-`valid/dcp_dom_interop`. 338 harness checks pass over 147 fixtures.
+`valid/dcp_dom_interop`. 358 harness checks pass over 157 fixtures.
 
 Seventeen stay single-vendor, on three grounds. Six need a source DoM cannot
 author or the base does not carry (`aux_data_atmos`, `stereo_framerate`,
@@ -149,6 +149,38 @@ A fixture's `also` is the union across both vendors, since the DoM variants reus
 the same mutation functions and leave different things behind: DoM packages carry
 markers, so changing a duration invalidates a marker Offset there and not on the
 dcpwizard side.
+
+## Coverage added 2026-08-26
+
+The five codes that already fired somewhere in the corpus without an isolated
+fixture now have one each, so coverage is 105 of 120 and `check_skipped` is the
+only code left that appears nowhere but another fixture's `also_emits`. Each new
+fixture declares exactly one code and nothing else on the dcpwizard base, and its
+DoM twin adds only the `signature_invalid` every DoM fixture carries, since
+editing a signed CPL invalidates its signature.
+
+- `cpl_pkl_hash_mismatch`: the CPL's picture `<Hash>` replaced with a base64 SHA-1
+  that is no file's digest. `reseal` takes a `reseal_cpl` keyword now: with it
+  off, the CPL's own asset hashes are left alone while the PKL is still rewritten
+  from the files, so the PKL records the CPL the package ships and the two only
+  disagree about the picture.
+- `cpl_missing_hash`: the same `<Hash>` deleted, with the same `reseal_cpl=False`.
+  It is on the 5.1 base rather than `valid/dcp_3d`, where dcpwizard's stereoscopic
+  CPL omits the element and the code fires on the baseline itself.
+- `cpl_active_area_invalid`: `MainPictureActiveArea` Width set to 4096 against the
+  2048-wide essence. 4096 is even, so the edge-parity half of the check stays
+  quiet, and `check_composition_metadata_asset` reads only EditRate and
+  IntrinsicDuration, so it says nothing about the active area.
+- `j2k_missing_tlm`: every frame's TLM marker code rewritten as a COM comment
+  marker of the same length. The segment length, the codestream and the MXF's KLV
+  lengths are all unchanged, and doing it to all 48 frames rather than the first
+  is what keeps `j2k_parameters_vary` off it. `codestream_bounds` walks the SOC+SIZ
+  pairs through the whole file, and `first_codestream` is now its first entry.
+- `j2k_parameters_vary`: the first frame's COD turns the multiple-component
+  transform off. Of the parameters the per-frame comparison holds constant, it is
+  the only one dcpdoctor reads for nothing but that comparison and the codestream
+  summary. Codeblock size and decomposition levels both have a DCI rule in
+  `validate_j2k_dci` and drew a `j2k_invalid_profile` when tried.
 
 ## Coverage added 2026-08-12
 
@@ -357,27 +389,10 @@ divergences where dcpdoctor flags the same defect at WARNING so the package
 - `mediainfo` is still absent. Only `probe_mediainfo` uses it and no DCP check
   calls that, so it changes nothing.
 
-## Remaining coverage gaps: 19 of 119 codes (2026-08-22)
+## Remaining coverage gaps: 15 of 120 codes (2026-08-26)
 
-dcpdoctor 0.5.0 added 32 codes. 13 of them got a fixture in this pass and 19 have
-none, so `ALL_CODES` is 119 and 100 are exercised. `UNCOVERED_REASONS` carries a
-reason for each, and they fall into four groups.
-
-Five already fire somewhere in the corpus without being isolated, four of them
-declared in another fixture's `also_emits`. Isolating each is cheap and worth
-doing:
-
-- `cpl_pkl_hash_mismatch` on `pkl_hash_mismatch`. A CPL-only hash corruption needs
-  a `reseal` that fixes the PKL's record of the CPL without rewriting the CPL's own
-  asset hashes, which is one keyword argument.
-- `cpl_missing_hash` on the `valid/dcp_3d` baseline, where dcpwizard's
-  stereoscopic CPL writes no picture `<Hash>` at all. Firing on a baseline is what
-  makes it unassertable there; a fixture that deletes the `<Hash>` from the 5.1
-  base needs the same keyword argument.
-- `cpl_active_area_invalid` and `j2k_missing_tlm` on `picture_invalid_resolution`,
-  both brought in by the substituted 1920-wide non-cinema essence.
-- `j2k_parameters_vary` on `j2k_invalid_component_count`, which patches frame 0
-  only.
+`ALL_CODES` is 120 and 105 are exercised. `UNCOVERED_REASONS` carries a reason for
+each of the 15, and they fall into three groups.
 
 One is reachable only through the reference packages and only with an essence
 flag: `j2k_poc_invalid`, three notes on ECL39. See the differential section for
@@ -400,7 +415,9 @@ The rest need essence or inputs the corpus has no builder for:
 at all: the CPL language elements are `xs:language`, so a bogus tag draws
 `xml_schema_violation` with it. `schema_validation_skipped` fires only when no
 schema directory is found, and dcpdoctor ships `schemas/`, so nothing here can
-reach it.
+reach it. `check_skipped` already rides along on `j2k_legacy_ffff`, whose injected
+0xFFFF stops the marker walk, but isolating it would mean staging a missing tool
+or an unreadable input.
 
 One earlier entry on this list is worth keeping as a warning about the others:
 `sound_invalid_block_align` was recorded as unreachable because
