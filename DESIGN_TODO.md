@@ -7,33 +7,16 @@ here. Four separate counts in this repo's docs have been wrong when checked.
 
 `ALL_CODES` is the full `Code::as_str` enum (120) and `UNCOVERED_REASONS` in
 `run_corpus.py` carries a reason for every code without a fixture. The open
-ones fall into three groups.
-
-Reachable only through the reference packages and only with an essence flag:
-`j2k_poc_invalid`, three notes on ECL39. Neither grok nor the corpus writes a
-POC marker, and the references run through dcpdoctor with no flags.
+ones fall into two groups.
 
 Need essence or inputs the corpus has no builder for: `projector_4k_stereo_support`
 (4K stereoscopic essence) and the three KDM rules (`kdm_thumbprint_invalid`,
 `kdm_content_authenticator_invalid`, `kdm_assume_trust_conflict`).
 
 Cannot be isolated: `cpl_invalid_language` (the CPL language elements are
-`xs:language`, so a bogus tag draws `xml_schema_violation` with it),
+`xs:language`, so a bogus tag draws `xml_schema_violation` with it) and
 `schema_validation_skipped` (fires only when no schema directory is found, and
-dcpdoctor ships `schemas/`) and `check_skipped` (rides along on
-`j2k_legacy_ffff`, whose injected 0xFFFF stops the marker walk, but isolating it
-means staging a missing tool or an unreadable input).
-
-## Reference packages under --check-mxf
-
-`scan_reference.py` and the differential run the ECL reference packages through
-dcpdoctor with no flags, so it never reads their essence while ClairMeta does.
-With `--check-mxf` dcpdoctor fails ECL25 (`j2k_bitrate_exceeded` at 358.2 Mb/s)
-and ECL42 (593.5 Mb/s plus a per-component overrun at 96 fps), both agreeing
-with ClairMeta to the tenth, and ECL39 on three `j2k_poc_invalid` notes ClairMeta
-does not report. Turning the flag on moves those three from CLAIRMETA_ONLY_FAIL
-to BOTH_FAIL and covers `j2k_poc_invalid`. It changes every reference package's
-recorded verdict at once, so it wants its own pass.
+dcpdoctor ships `schemas/`).
 
 ## Standing decisions
 

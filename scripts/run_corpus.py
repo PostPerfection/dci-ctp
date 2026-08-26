@@ -93,7 +93,6 @@ UNCOVERED_REASONS = {
     "schema_validation_skipped": "fires only when no schema directory is found; dcpdoctor ships schemas/, so the pass always runs here",
     "check_skipped": "fires only when a tool is missing or an input is unreadable in ways the corpus does not stage (ffprobe absent, truncated codestream walk)",
     "cpl_invalid_language": "the CPL language elements are xs:language, so a bogus tag draws xml_schema_violation with it",
-    "j2k_poc_invalid": "no synthetic fixture: neither grok nor the corpus writes a POC marker. ECL39 carries one and dcpdoctor flags it, but reference packages run with no essence flags",
     "projector_4k_stereo_support": "needs 4K stereoscopic essence; the corpus builds 2K only",
     "kdm_thumbprint_invalid": "needs a KDM whose recipient thumbprint disagrees with its certificate",
     "kdm_content_authenticator_invalid": "needs a KDM whose content authenticator is not the signer",
@@ -230,7 +229,7 @@ def main():
             if not os.path.isdir(d):
                 print(f"  {YELLOW}SKIP{NC} {pkg['id']} (not fetched)")
                 continue
-            out = run(d, [])
+            out = run(d, pkg["flags"])
             recorded = set(pkg["observed_codes"])
             still = {c for c in recorded if code_fires(out, c)}
             ref_covered |= still

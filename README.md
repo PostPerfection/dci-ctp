@@ -77,15 +77,13 @@ DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage against dcpdoctor master: 112 of 120 codes are exercised (101 by isolated
-synthetic + subcommand fixtures, 11 more by the ClairMeta reference packages).
+Coverage against dcpdoctor master: 114 of 120 codes are exercised (101 by isolated
+synthetic + subcommand fixtures, 13 more by the ClairMeta reference packages).
 `ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
-count and the uncovered list share one denominator (112 + 8 = 120). The 8
+count and the uncovered list share one denominator (114 + 6 = 120). The 6
 uncovered each carry a reason in `UNCOVERED_REASONS`, which `run_corpus.py`
-prints: one rides along on another fixture and is declared in its `also_emits`
-(`check_skipped`, on `j2k_legacy_ffff`, whose injected 0xFFFF stops the marker
-walk), the rest need essence or a document shape the corpus does not build yet
-(4K stereoscopic, a POC marker, crafted KDMs). Most fixtures run through
+prints: they need essence, a document shape or an input the corpus does not build
+yet (4K stereoscopic, crafted KDMs). Most fixtures run through
 `dcpdoctor validate`; four codes
 reachable only through other subcommands (kdm, auto-qc) use a
 `subcommand_fixtures` manifest section. A code that reports a measurement rather
@@ -107,7 +105,9 @@ those fixtures are skipped (recorded in the run output), not failed.
 `scripts/scan_reference.py` runs dcpdoctor against the [ClairMeta_Data](https://github.com/ClairMeta/ClairMeta_Data)
 ECL set (28 real third-party DCPs: Interop + SMPTE, 3D, Atmos, HFR, encryption,
 plus deliberate defects like ECL39's mismatched wavelet levels) and records each
-one's observed verdict into the manifest under `reference_packages`. These are
+one's observed verdict into the manifest under `reference_packages`. They run with
+`--check-mxf`, so dcpdoctor reads their essence, and the flag list is recorded on
+each entry so `run_corpus.py` and the differential replay the same command. These are
 fetched, not vendored (~1.5 GB); set `CLAIRMETA_DATA` to the clone path. They are
 the shared corpus a differential-testing pass diffs against ClairMeta's own
 results, and they give real coverage of `certificate_expired` (their signing
@@ -131,10 +131,10 @@ absent them they bypass silently, so the diff then covers XML/structure/signatur
 only. Photon is never invoked: the one IMF IMP in the corpus lands as TOOL_ERROR under
 ClairMeta, which is a DCP validator.
 
-Full-corpus result (180 packages: 7 baselines, 145 negative fixtures, 28 ECL
-references): BOTH_PASS 39, BOTH_FAIL 84, DCPDOCTOR_ONLY_FAIL 21,
-CLAIRMETA_ONLY_FAIL 31, TOOL_ERROR 5. dcpdoctor caught 145/145 injected fixture
-defects, ClairMeta 113/145. What sits in each bucket and why is in `DESIGN_TODO.md`
+Full-corpus result (203 packages: 7 baselines, 168 negative fixtures, 28 ECL
+references): BOTH_PASS 38, BOTH_FAIL 112, DCPDOCTOR_ONLY_FAIL 35,
+CLAIRMETA_ONLY_FAIL 10, TOOL_ERROR 8. dcpdoctor caught 168/168 injected fixture
+defects, ClairMeta 127/168. What sits in each bucket and why is in `DESIGN_TODO.md`
 under "Differential vs ClairMeta", so the numbers live in one place.
 
 The differential runs as an optional, non-blocking CI job (uploads the report as

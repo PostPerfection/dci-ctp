@@ -63,11 +63,12 @@ env). These become the shared corpus for differential testing against
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 
-## Coverage: 105 of 120 codes
+## Coverage: 114 of 120 codes
 
-94 codes have isolated synthetic or subcommand fixtures, and 11 more come from
-the ClairMeta reference packages. `run_corpus.py` prints the live list and a
-reason per gap, and the 15 remaining gaps are in `UNCOVERED_REASONS`.
+101 codes have isolated synthetic or subcommand fixtures, and 13 more come from
+the ClairMeta reference packages, which run with `--check-mxf`. `run_corpus.py`
+prints the live list and a reason per gap, and the 6 remaining gaps are in
+`UNCOVERED_REASONS`.
 
 Fixture machinery beyond the plain clone+mutate:
 
@@ -160,7 +161,7 @@ policy: ClairMeta downgrades expired certs to INFO. Two Interop packages emit
 This diff is what found `postkit::xmldsig` hardcoding SHA-256 for the reference
 digest and the RSA signature, which rejected every SHA-1-signed ECL package.
 Verification now reads the declared `DigestMethod` and `SignatureMethod`, and no
-reference package lands in DCPDOCTOR_ONLY_FAIL.
+reference package lands in DCPDOCTOR_ONLY_FAIL on a signature code.
 
 ### dcpdoctor coverage gaps ClairMeta exposed
 

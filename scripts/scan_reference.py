@@ -27,6 +27,8 @@ ROOT = os.environ.get(
     os.path.expanduser("~/src/PostPerfection/dci-ctp-work/ClairMeta_Data"),
 )
 ECL = os.path.join(ROOT, "DCP", "ECL-SET")
+# the reference packages carry real essence, so read it
+REFERENCE_FLAGS = ["--check-mxf"]
 
 
 def features(name):
@@ -96,7 +98,7 @@ def main():
                                       or os.path.exists(os.path.join(d, "ASSETMAP")))):
             continue
         std, feats = features(name)
-        out = run(d, [])
+        out = run(d, REFERENCE_FLAGS)
         result, codes = parse(out)
         entry = {
             "id": name.split("-")[0],
@@ -104,6 +106,7 @@ def main():
             "source": "clairmeta-ecl",
             "standard": std,
             "features": feats,
+            "flags": REFERENCE_FLAGS,
             "observed_result": result,
             "observed_codes": codes,
         }

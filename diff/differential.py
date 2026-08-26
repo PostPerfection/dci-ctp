@@ -253,7 +253,7 @@ def main():
             path = os.path.join(ecl, pkg["dir"])
             if not os.path.isdir(path):
                 continue
-            dd = run_dcpdoctor(path, [])
+            dd = run_dcpdoctor(path, pkg["flags"])
             cm = run_clairmeta(path)
             bucket = classify(dd, cm)
             counts[bucket] += 1

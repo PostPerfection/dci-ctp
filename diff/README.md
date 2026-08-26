@@ -34,9 +34,8 @@ Env:
   well as XML/structure/signature/cert. `mediainfo` is a fourth ClairMeta dependency
   but only `probe_mediainfo` uses it, which no DCP check calls, so its absence
   changes nothing here.
-- Reference packages go through dcpdoctor with no flags, so dcpdoctor does not read
-  their essence while ClairMeta now does. Adding `--check-mxf` there does not change
-  any current verdict (checked on ECL25, ECL39, ECL42).
+- Reference packages go through dcpdoctor with `--check-mxf`, recorded as the `flags`
+  key on each manifest entry, so both tools read their essence.
 - Photon is never invoked: the one IMF IMP in the corpus lands as TOOL_ERROR under
   ClairMeta, which is a DCP validator.
 - The negative fixtures all derive from one dcpwizard base that ClairMeta already
