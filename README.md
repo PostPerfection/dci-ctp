@@ -77,16 +77,16 @@ DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage against dcpdoctor master: 105 of 120 codes are exercised (94 by isolated
+Coverage against dcpdoctor master: 112 of 120 codes are exercised (101 by isolated
 synthetic + subcommand fixtures, 11 more by the ClairMeta reference packages).
 `ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
-count and the uncovered list share one denominator (105 + 15 = 120). The 15
+count and the uncovered list share one denominator (112 + 8 = 120). The 8
 uncovered each carry a reason in `UNCOVERED_REASONS`, which `run_corpus.py`
 prints: one rides along on another fixture and is declared in its `also_emits`
 (`check_skipped`, on `j2k_legacy_ffff`, whose injected 0xFFFF stops the marker
 walk), the rest need essence or a document shape the corpus does not build yet
-(4K stereoscopic, MXF-wrapped timed text, multi-reel subtitle layouts, crafted
-KDMs). Most fixtures run through `dcpdoctor validate`; four codes
+(4K stereoscopic, a POC marker, crafted KDMs). Most fixtures run through
+`dcpdoctor validate`; four codes
 reachable only through other subcommands (kdm, auto-qc) use a
 `subcommand_fixtures` manifest section. A code that reports a measurement rather
 than a verdict is covered by the flag that gates it: the fixture and its baseline
@@ -96,8 +96,10 @@ The certificate fixtures need the python `cryptography` package, which
 `corpus_gen.py` uses to build their ST 430-2 chains. The picture/J2K and IMF
 fixtures need grok's `grk_compress` on PATH and a vendored
 `asdcp-wrap`, which `build_corpus.sh` builds once from `dcpwizard/extern/asdcplib`
-and caches. dcpwizard/postkit enforce DCI on their own wrap paths, so `asdcp-wrap`
-is the only way to get non-DCI essence into an AS-DCP MXF. If either tool is absent
+and caches. dcpwizard/postkit enforce DCI on their own wrap paths and subset the
+fonts they embed, so `asdcp-wrap` is the only way to get non-DCI essence into an
+AS-DCP MXF or a font of a chosen size into an ST 429-5 timed-text MXF
+(`subtitle_font_too_large`). If either tool is absent
 those fixtures are skipped (recorded in the run output), not failed.
 
 ### ClairMeta reference packages

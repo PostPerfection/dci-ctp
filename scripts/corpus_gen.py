@@ -19,7 +19,9 @@ import os
 import re
 import shutil
 import struct
+import subprocess
 import sys
+import tempfile
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -35,6 +37,11 @@ ENC_SRC = os.path.join(CORPUS, ".enc_src")  # encrypted (unsigned) DCP, built by
 BITRATE_SRC = os.path.join(CORPUS, ".bitrate_src")  # 3D at full 2K bandwidth, over the DCI peak
 IMF_SRC = os.path.join(CORPUS, "valid", "imf_ov")  # IMF IMP, built by build_corpus.sh
 NONDCI_MXF = os.path.join(CORPUS, ".nondci", "nondci_res.mxf")  # non-DCI J2K wrapped by asdcp-wrap
+# where build_corpus.sh caches its asdcplib build. dcpwizard and postkit both
+# subset the fonts they embed, so this is the only wrapper that puts a font of a
+# chosen size inside an ST 429-5 timed-text MXF.
+ASDCP_BUILD = os.path.join(os.environ.get("CTP_SRC_DIR", "/tmp/ctp-corpus-src"), "asdcplib-build")
+ASDCP_WRAP = os.path.join(ASDCP_BUILD, "src", "asdcp-wrap")
 # the second mastering tool in the corpus. Every fixture derived from BASE
 # resolves its targets by content, so the same mutation applies to these too.
 ALL_MARKERS_BASELINE = "valid/dcp_all_markers"
@@ -610,6 +617,8 @@ def set_picture_hash(d, value):
     edit_cpl_element(d, "MainPicture", rewrite)
 
 
+# a well-formed base64 SHA-1 that is no file's digest
+WRONG_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAA="
 SUB_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444444"
 # the id the mxf_asset_id_mismatch fixture puts in place of the picture asset id
 REWRITTEN_PICTURE_ID = "5b17e100-1111-2222-3333-444444444477"
@@ -624,24 +633,40 @@ DCST_NS = "http://www.smpte-ra.org/schemas/428-7/2010/DCST"
 CC_NS = "http://www.digicine.com/PROTO-ASDCP-CC-CPL-20070926#"
 
 
-def add_timed_text(d, xml, *, element="MainSubtitle", asset_id=SUB_ID,
-                   filename="sub.xml", ns_decl="", entry_point=0):
-    """Attach a timed-text track (referencing `filename`) to the first reel and
-    register the file in the ASSETMAP, so dcpdoctor's subtitle/closed-caption
-    checks run on the given document. Bv2.1 §8.3.2 wants a zero EntryPoint on a
-    timed-text asset; entry_point=None leaves the element out."""
+def add_timed_text(d, xml, *, filename="sub.xml", **kwargs):
+    """Write a timed-text document into the package and attach a track to it."""
     write(os.path.join(d, filename), xml)
+    attach_timed_text(d, filename, **kwargs)
+
+
+SOUND_TRACK_END = "        </MainSound>"
+
+
+def attach_timed_text(d, filename, *, element="MainSubtitle", asset_id=SUB_ID,
+                      ns_decl="", entry_point=0, reel_index=0):
+    """Attach a timed-text track (referencing `filename`, a loose document or a
+    wrapped MXF) to reel `reel_index` and register the file in the ASSETMAP, so
+    dcpdoctor's subtitle/closed-caption checks run on it. Bv2.1 §8.3.2 wants a
+    zero EntryPoint on a timed-text asset; entry_point=None leaves the element
+    out."""
     p = cpl_path(d)
     entry = "" if entry_point is None else f"          <EntryPoint>{entry_point}</EntryPoint>\n"
+    # a track file needs a CPL <Hash>, which a loose XML asset does not. reseal
+    # replaces the placeholder with the file's real digest
+    hashed = (f"          <Hash>{WRONG_HASH}</Hash>\n"
+              if filename.lower().endswith(".mxf") else "")
     block = (f"        <{element}{ns_decl}>\n"
              f"          <Id>{asset_id}</Id>\n"
              "          <EditRate>24 1</EditRate>\n"
              "          <IntrinsicDuration>48</IntrinsicDuration>\n"
              f"{entry}"
              "          <Duration>48</Duration>\n"
+             f"{hashed}"
              f"        </{element}>\n")
-    s = read(p).replace("        </MainSound>", "        </MainSound>\n" + block, 1)
-    write(p, s)
+    parts = read(p).split(SOUND_TRACK_END)
+    assert len(parts) > reel_index + 1, f"{d} has no reel {reel_index + 1} carrying sound"
+    head = SOUND_TRACK_END.join(parts[:reel_index + 1]) + SOUND_TRACK_END
+    write(p, head + "\n" + block + SOUND_TRACK_END.join(parts[reel_index + 1:]))
     add_assetmap_entry(d, asset_id, filename)
 
 
@@ -690,17 +715,37 @@ def add_closed_caption(d, ccap_xml, **kwargs):
                    filename="ccap.xml", ns_decl=f' xmlns:cc="{CC_NS}"', **kwargs)
 
 
+SECOND_REEL_ID = "urn:uuid:00000000-0000-0000-0000-0000000000f2"
+
+
+def duplicate_first_reel(d, rewrite=None):
+    """Append a copy of the first reel under a new Reel Id, optionally rewritten.
+    The copy keeps the first reel's EntryPoint of 0, which check_reel_continuity
+    skips, and every value the coherence and metadata checks read is the first
+    reel's, so a plain duplicate leaves a two-reel CPL with nothing to report."""
+    p = cpl_path(d)
+    s = read(p)
+    reel = re.search(r"<Reel>[\s\S]*?</Reel>", s).group(0)
+    second = re.sub(r"(<Reel>\s*<Id>)urn:uuid:[0-9a-fA-F-]+",
+                    rf"\g<1>{SECOND_REEL_ID}", reel, count=1)
+    if rewrite:
+        second = rewrite(second)
+    write(p, s.replace("</ReelList>", second + "\n  </ReelList>", 1))
+
+
 # the IssueDate form Deluxe QC demands and dcpdoctor checks for: yyyy-mm-ddThh:mm:ss
 DCST_ISSUE_DATE = "2026-01-01T00:00:00"
 
 
-def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=True,
-         time_in="00:00:01:00", time_out="00:00:02:00", broken=False,
-         lines=("hi",), time_code_rate=24, issue_date=DCST_ISSUE_DATE,
-         start_time="00:00:00:000", extra_namespace=None):
+def dcst(*, ns=True, sub_id=True, document_id=SUB_ID, reel_number=True, language="en",
+         load_font=True, time_in="00:00:01:00", time_out="00:00:02:00", broken=False,
+         lines=("hi",), placements=None, time_code_rate=24, issue_date=DCST_ISSUE_DATE,
+         start_time="00:00:00:000", extra_namespace=None, padding_bytes=0):
     """Build a SMPTE DCST timed-text document, omitting or overriding parts to
     trigger a code. Each entry in `lines` becomes one <Text> element, which is
-    how dcpdoctor counts displayed lines.
+    how dcpdoctor counts displayed lines. `placements` gives each of them a
+    (Valign, Vposition) pair, the spelling DCDMSubtitle-2010.xsd uses, and
+    padding_bytes pads the document out with a comment no rule reads.
 
     Element order follows the SubtitleReelType sequence in DCDMSubtitle-2010.xsd
     (Id, ContentTitleText, IssueDate, ReelNumber, Language, EditRate,
@@ -710,15 +755,17 @@ def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=Tru
     if extra_namespace:
         xmlns += f' xmlns:extra="{extra_namespace}"'
     parts = [f'<?xml version="1.0" encoding="UTF-8"?>\n<SubtitleReel{xmlns}>']
+    if padding_bytes:
+        parts.append(f"  <!-- {'x' * padding_bytes} -->")
     if sub_id:
-        parts.append(f"  <Id>{SUB_ID}</Id>")
+        parts.append(f"  <Id>{document_id}</Id>")
     parts.append("  <ContentTitleText>CTPBase</ContentTitleText>")
     if issue_date is not None:
         parts.append(f"  <IssueDate>{issue_date}</IssueDate>")
     if reel_number:
         parts.append("  <ReelNumber>1</ReelNumber>")
     if language:
-        parts.append("  <Language>en</Language>")
+        parts.append(f"  <Language>{language}</Language>")
     parts.append("  <EditRate>24 1</EditRate>")
     if time_code_rate is not None:
         parts.append(f"  <TimeCodeRate>{time_code_rate}</TimeCodeRate>")
@@ -730,21 +777,37 @@ def dcst(*, ns=True, sub_id=True, reel_number=True, language=True, load_font=Tru
     if broken:
         parts.append(f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}"><Text>hi</Broken')
         return "\n".join(parts)
-    text = "".join(f"<Text>{line}</Text>" for line in lines)
+    places = placements or [None] * len(lines)
+    text = "".join(f"<Text{dcst_placement(place)}>{line}</Text>"
+                   for line, place in zip(lines, places))
     parts.append(f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}">{text}</Subtitle>')
     parts.append("  </SubtitleList>\n</SubtitleReel>")
     return "\n".join(parts)
 
 
-def dcsubtitle(*, lines=("hi",), font_uri="font.ttf",
-               time_in="00:00:01:000", time_out="00:00:02:000"):
-    """Build an Interop DCSubtitle document. Interop references its font by URI
-    rather than by asset urn, which is how the glyph check resolves one.
+def dcst_placement(place):
+    if place is None:
+        return ""
+    valign, vposition = place
+    return f' Valign="{valign}" Vposition="{vposition}"'
+
+
+DCSUBTITLE_CUE = (("00:00:01:000", "00:00:02:000", ("hi",)),)
+
+
+def dcsubtitle(*, cues=DCSUBTITLE_CUE, font_uri="font.ttf"):
+    """Build an Interop DCSubtitle document from (TimeIn, TimeOut, lines) cues.
+    Interop references its font by URI rather than by asset urn, which is how the
+    glyph check resolves one.
 
     DCSubtitle.xsd carries no targetNamespace and spells the identifier as a
     SubtitleID element ahead of MovieTitle, so a conformant document declares no
     xmlns at all and its times are three-digit ticks."""
-    text = "".join(f"<Text>{line}</Text>" for line in lines)
+    body = "".join(
+        f'    <Subtitle SpotNumber="{n}" TimeIn="{time_in}" TimeOut="{time_out}">'
+        + "".join(f"<Text>{line}</Text>" for line in lines)
+        + "</Subtitle>\n"
+        for n, (time_in, time_out, lines) in enumerate(cues, start=1))
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<DCSubtitle Version="1.0">\n'
             f'  <SubtitleID>{SUB_ID[len("urn:uuid:"):]}</SubtitleID>\n'
@@ -753,21 +816,57 @@ def dcsubtitle(*, lines=("hi",), font_uri="font.ttf",
             "  <Language>en</Language>\n"
             f'  <LoadFont Id="Arial" URI="{font_uri}"/>\n'
             '  <Font Id="Arial">\n'
-            f'    <Subtitle SpotNumber="1" TimeIn="{time_in}" TimeOut="{time_out}">{text}</Subtitle>\n'
+            f"{body}"
             "  </Font>\n</DCSubtitle>\n")
 
 
-def make_font(chars):
+SFNT_TABLE_RECORD_BYTES = 16
+SFNT_HEADER_BYTES = 12
+
+
+def make_font(chars, pad_to=0):
     """Minimal sfnt carrying nothing but a format-12 cmap that maps `chars` to
     sequential glyph ids. Every other code point resolves to glyph 0, which is
-    what dcpdoctor's glyph-coverage check reports as missing."""
+    what dcpdoctor's glyph-coverage check reports as missing. pad_to adds a
+    second table of zeroes so the file reaches that many bytes and still parses,
+    which is what an oversized font has to do to reach the size rule."""
     n = len(chars)
     sub = struct.pack(">HHIII", 12, 0, 16 + 12 * n, 0, n)
     for i, c in enumerate(chars):
         sub += struct.pack(">III", ord(c), ord(c), i + 1)
     cmap = struct.pack(">HHHHI", 0, 1, 3, 10, 12) + sub
-    header = struct.pack(">IHHHH", 0x00010000, 1, 16, 0, 0)
-    return header + b"cmap" + struct.pack(">III", 0, 28, len(cmap)) + cmap
+    if not pad_to:
+        header = struct.pack(">IHHHH", 0x00010000, 1, 16, 0, 0)
+        cmap_at = SFNT_HEADER_BYTES + SFNT_TABLE_RECORD_BYTES
+        return header + b"cmap" + struct.pack(">III", 0, cmap_at, len(cmap)) + cmap
+    header = struct.pack(">IHHHH", 0x00010000, 2, 32, 1, 0)
+    tables_at = SFNT_HEADER_BYTES + 2 * SFNT_TABLE_RECORD_BYTES
+    padding = pad_to - tables_at - len(cmap)
+    padding -= padding % 4  # tables start on a four-byte boundary
+    assert padding > 0, f"pad_to {pad_to} leaves no room beside the cmap"
+    # the table directory is ordered by tag, and 'PAD ' sorts before 'cmap'
+    records = (b"PAD " + struct.pack(">III", 0, tables_at, padding)
+               + b"cmap" + struct.pack(">III", 0, tables_at + padding, len(cmap)))
+    return header + records + bytes(padding) + cmap
+
+
+def wrap_timed_text(xml, font, dest, *, asset_id, font_id=FONT_ID):
+    """ST 429-5 wrap of a DCST document and one font, through asdcp-wrap. It
+    resolves a LoadFont urn by scanning the XML's own directory for a filename
+    carrying the dashed uuid, so both files go into a work directory of their
+    own. -a fixes the MXF AssetUUID, which the CPL has to reference, and leaves
+    it distinct from the document Id the descriptor records as its ResourceID."""
+    with tempfile.TemporaryDirectory() as work:
+        document = os.path.join(work, "sub.xml")
+        write(document, xml)
+        with open(os.path.join(work, font_id[len("urn:uuid:"):] + ".ttf"), "wb") as f:
+            f.write(font)
+        env = dict(os.environ)
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(
+            [os.path.join(ASDCP_BUILD, "src"), env.get("LD_LIBRARY_PATH", "")])
+        subprocess.run(
+            [ASDCP_WRAP, "-L", "-a", asset_id[len("urn:uuid:"):], document, dest],
+            check=True, capture_output=True, env=env)
 
 
 # ── certificate chains ───────────────────────────────────────────────────────
@@ -1131,10 +1230,6 @@ def _(d):
     write(p, s)
 
 
-# a well-formed base64 SHA-1 that is no file's digest
-WRONG_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAA="
-
-
 @fixture("cpl_pkl_hash_mismatch", ["cpl_pkl_hash_mismatch"], [],
          "CPL <Hash> for the picture corrupted while the PKL keeps the file's "
          "real digest, so the two disagree over an asset that is itself intact. "
@@ -1337,17 +1432,8 @@ def _(d):
 @fixture("reel_discontinuity", ["reel_discontinuity"], [],
          "Second reel EntryPoint does not follow the first")
 def _(d):
-    p = cpl_path(d)
-    s = read(p)
-    reel = re.search(r"<Reel>[\s\S]*?</Reel>", s).group(0)
-    reel2 = reel
-    # new reel Id
-    reel2 = re.sub(r"(<Reel>\s*<Id>)urn:uuid:[0-9a-fA-F-]+",
-                   r"\1urn:uuid:00000000-0000-0000-0000-0000000000f2", reel2, count=1)
-    # break continuity: picture EntryPoint 0 -> 100
-    reel2 = reel2.replace("<EntryPoint>0</EntryPoint>", "<EntryPoint>100</EntryPoint>")
-    s = s.replace("</ReelList>", reel2 + "\n  </ReelList>", 1)
-    write(p, s)
+    duplicate_first_reel(d, lambda reel: reel.replace(
+        "<EntryPoint>0</EntryPoint>", "<EntryPoint>100</EntryPoint>"))
 
 
 @fixture("stereo_mismatch", ["stereo_mismatch"], [],
@@ -1784,7 +1870,7 @@ def _(d):
     with open(os.path.join(d, "font.ttf"), "wb") as f:
         f.write(make_font(["H", "i", " "]))
     add_assetmap_entry(d, FONT_ID, "font.ttf")
-    add_timed_text(d, dcsubtitle(lines=("Hi ★",)))
+    add_timed_text(d, dcsubtitle(cues=[("00:00:01:000", "00:00:02:000", ("Hi ★",))]))
     reseal(d)
 
 
@@ -1841,6 +1927,100 @@ def _(d):
          "is how a document assembled from two schema versions reads")
 def _(d):
     add_subtitle(d, dcst(extra_namespace="urn:example:second-namespace"))
+
+
+# both lines bottom-aligned, where VPosition is measured upward from the bottom,
+# so the second one is drawn above the first and the pair reads bottom-up
+CCAP_BOTTOM_UP_LINES = (("bottom", 10), ("bottom", 20))
+
+
+@fixture("closed_caption_layout", ["closed_caption_layout"], [],
+         "One closed-caption cue lists its two lines out of the order they "
+         "appear on screen: both are bottom-aligned and the second sits above "
+         "the first. Two lines stay inside every count and length limit, so the "
+         "layout is the only thing wrong with the cue")
+def _(d):
+    add_closed_caption(d, dcst(lines=("first", "second"),
+                               placements=CCAP_BOTTOM_UP_LINES))
+
+
+# over the 256 KiB Bv2.1 cap on closed-caption XML with room for the document
+CCAP_PADDING_BYTES = 300 * 1024
+
+
+@fixture("timed_text_size_exceeded", ["timed_text_size_exceeded"], [],
+         "Closed-caption document padded past the Bv2.1 256 KiB cap with an XML "
+         "comment. Padding with more cues instead would trip the cue and line "
+         "rules long before the byte count")
+def _(d):
+    add_closed_caption(d, dcst(padding_bytes=CCAP_PADDING_BYTES))
+
+
+@fixture("subtitle_missing_from_reel", ["subtitle_missing_from_reel"], [],
+         "Two-reel composition carrying a MainSubtitle on the first reel only. "
+         "The second reel is a copy of the first, so every per-reel check reads "
+         "the same values twice and the missing subtitle is the only defect")
+def _(d):
+    duplicate_first_reel(d)
+    add_subtitle(d, dcst())
+
+
+@fixture("closed_caption_count_mismatch", ["closed_caption_count_mismatch"], [],
+         "Two-reel composition carrying a ClosedCaption on the first reel only, "
+         "so the reels disagree over how many captions they hold")
+def _(d):
+    duplicate_first_reel(d)
+    add_closed_caption(d, dcst())
+
+
+SECOND_SUB_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444488"
+
+
+@fixture("subtitle_language_mismatch", ["subtitle_language_mismatch"], [],
+         "Two-reel composition whose two MainSubtitle documents declare "
+         "different <Language>. Both reels carry a subtitle, so the "
+         "missing-from-reel check stays quiet")
+def _(d):
+    duplicate_first_reel(d)
+    add_subtitle(d, dcst(language="en"))
+    add_subtitle(d, dcst(language="fr", document_id=SECOND_SUB_ID),
+                 asset_id=SECOND_SUB_ID, filename="sub2.xml", reel_index=1)
+
+
+# over the 640 KiB a player handles reliably and far under the 10 MiB Bv2.1 caps
+# the aggregate at, so the warning fires on its own
+OVERSIZED_FONT_BYTES = 700 * 1024
+TIMED_TEXT_MXF_ID = "urn:uuid:5b17e100-1111-2222-3333-444444444499"
+
+
+@fixture("subtitle_font_too_large", ["subtitle_font_too_large"], [],
+         "MainSubtitle wrapped as an ST 429-5 MXF carrying a 700 KiB font, over "
+         "the 640 KiB that plays back reliably. The rule only runs on wrapped "
+         "essence, so a loose XML asset cannot reach it. The font is the sfnt "
+         "the glyph fixture uses padded with a second table, so it still parses "
+         "and still covers the cue",
+         requires=[ASDCP_WRAP])
+def _(d):
+    wrap_timed_text(dcst(), make_font(["h", "i"], pad_to=OVERSIZED_FONT_BYTES),
+                    os.path.join(d, "sub.mxf"), asset_id=TIMED_TEXT_MXF_ID)
+    attach_timed_text(d, "sub.mxf", asset_id=TIMED_TEXT_MXF_ID)
+
+
+@fixture("closed_caption_interop_overlap", ["closed_caption_interop_overlap"], [],
+         "Interop package whose closed-caption document holds two cues that "
+         "overlap in time. SMPTE allows the overlap, so the fixture can only sit "
+         "on the Interop package and has no SMPTE twin. Both cues end inside the "
+         "reel's two seconds, so the only thing wrong with them is the overlap.",
+         reseal_after=False, src=DOM_INTEROP, baseline="valid/dcp_dom_interop",
+         # cues that overlap are out of order for the document-level timing rule
+         # as well as for the Interop caption rule
+         also=["subtitle_invalid_timing"])
+def _(d):
+    add_closed_caption(d, dcsubtitle(cues=[
+        ("00:00:00:012", "00:00:01:012", ("first",)),
+        ("00:00:01:000", "00:00:02:000", ("second",)),
+    ]))
+    reseal(d)
 
 
 @fixture("mxf_asset_id_mismatch", ["mxf_asset_id_mismatch"], [],

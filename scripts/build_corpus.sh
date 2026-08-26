@@ -162,9 +162,12 @@ export PATH="$PATH:$HOME/bin/grok/bin"
 GRK="$(command -v grk_compress || true)"
 
 # build asdcp-wrap once, cached in the source dir (dcpwizard/postkit enforce DCI
-# on their wrap paths, so the raw C++ wrapper is the only way to get non-DCI
-# essence into an AS-DCP MXF)
-ASDCPLIB_SRC="$HOME/src/PostPerfection/dcpwizard/extern/asdcplib"
+# on their wrap paths and subset the fonts they embed, so the raw C++ wrapper is
+# the only way to get non-DCI essence into an AS-DCP MXF or a font of a chosen
+# size into an ST 429-5 timed-text MXF). Resolved beside the dcpwizard binary, so
+# a CI checkout finds it where a working copy does.
+WIZARD_REPO="$(cd "$(dirname "$DCPWIZARD")/../../.." 2>/dev/null && pwd || echo "")"
+ASDCPLIB_SRC="${ASDCPLIB_SRC:-$WIZARD_REPO/extern/asdcplib}"
 ASDCP_BUILD="$SRCDIR/asdcplib-build"
 WRAP="$ASDCP_BUILD/src/asdcp-wrap"
 if [[ ! -x "$WRAP" && -d "$ASDCPLIB_SRC" ]]; then
