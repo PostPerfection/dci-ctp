@@ -51,7 +51,9 @@ ALL_CODES = [
     "certificate_thumbprint_invalid", "certificate_organization_inconsistent",
     "smpte_naming_violation", "smpte_namespace_wrong",
     "interop_namespace_wrong", "picture_invalid_resolution",
-    "picture_invalid_frame_rate", "j2k_bitrate_exceeded",
+    "picture_invalid_frame_rate", "picture_not_imf_profile",
+    "picture_colour_missing", "picture_coding_label_mismatch",
+    "picture_pixel_layout_mismatch", "j2k_bitrate_exceeded",
     "picture_bitrate_measured", "j2k_invalid_profile",
     "j2k_invalid_component_count", "j2k_legacy_ffff", "j2k_guard_bits",
     "j2k_missing_tlm", "j2k_poc_invalid", "j2k_parameters_vary",
@@ -97,6 +99,10 @@ UNCOVERED_REASONS = {
     "kdm_thumbprint_invalid": "needs a KDM whose recipient thumbprint disagrees with its certificate",
     "kdm_content_authenticator_invalid": "needs a KDM whose content authenticator is not the signer",
     "kdm_assume_trust_conflict": "needs --assume-trust against a KDM that fails a trust rule",
+    "picture_not_imf_profile": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
+    "picture_colour_missing": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
+    "picture_coding_label_mismatch": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
+    "picture_pixel_layout_mismatch": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
 }
 
 GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"

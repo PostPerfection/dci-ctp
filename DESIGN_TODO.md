@@ -5,13 +5,17 @@ here. Four separate counts in this repo's docs have been wrong when checked.
 
 ## Coverage gaps
 
-`ALL_CODES` is the full `Code::as_str` enum (120) and `UNCOVERED_REASONS` in
+`ALL_CODES` is the full `Code::as_str` enum (124) and `UNCOVERED_REASONS` in
 `run_corpus.py` carries a reason for every code without a fixture. The open
-ones fall into two groups.
+ones fall into three groups.
 
 Need essence or inputs the corpus has no builder for: `projector_4k_stereo_support`
 (4K stereoscopic essence) and the three KDM rules (`kdm_thumbprint_invalid`,
 `kdm_content_authenticator_invalid`, `kdm_assume_trust_conflict`).
+
+IMF only: `picture_not_imf_profile`, `picture_colour_missing`,
+`picture_coding_label_mismatch` and `picture_pixel_layout_mismatch` read an App
+2E track file's descriptor, and the corpus holds DCPs and builds no IMP.
 
 Cannot be isolated: `cpl_invalid_language` (the CPL language elements are
 `xs:language`, so a bogus tag draws `xml_schema_violation` with it) and

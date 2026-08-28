@@ -77,13 +77,13 @@ DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
 
-Coverage against dcpdoctor master: 114 of 120 codes are exercised (101 by isolated
+Coverage against dcpdoctor master: 114 of 124 codes are exercised (101 by isolated
 synthetic + subcommand fixtures, 13 more by the ClairMeta reference packages).
 `ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
-count and the uncovered list share one denominator (114 + 6 = 120). The 6
+count and the uncovered list share one denominator (114 + 10 = 124). The 10
 uncovered each carry a reason in `UNCOVERED_REASONS`, which `run_corpus.py`
 prints: they need essence, a document shape or an input the corpus does not build
-yet (4K stereoscopic, crafted KDMs). Most fixtures run through
+yet (4K stereoscopic, crafted KDMs, an IMP for the App 2E picture rules). Most fixtures run through
 `dcpdoctor validate`; four codes
 reachable only through other subcommands (kdm, auto-qc) use a
 `subcommand_fixtures` manifest section. A code that reports a measurement rather
