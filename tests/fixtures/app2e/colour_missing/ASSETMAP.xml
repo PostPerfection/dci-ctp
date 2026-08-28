@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AssetMap xmlns="http://www.smpte-ra.org/schemas/429-9/2007/AM">
+  <Id>urn:uuid:d88fedaa-c1ae-5b2f-8795-998c31f423cb</Id>
+  <Creator>dcpdoctor write_app2e_fixtures</Creator>
+  <VolumeCount>1</VolumeCount>
+  <IssueDate>2026-01-01T00:00:00+00:00</IssueDate>
+  <Issuer>dcpdoctor</Issuer>
+  <AssetList>
+    <Asset>
+      <Id>urn:uuid:6bbc8bb4-6c73-5f19-eaed-369c7b9a3436</Id>
+      <PackingList>true</PackingList>
+      <ChunkList><Chunk><Path>PKL.xml</Path><VolumeIndex>1</VolumeIndex><Offset>0</Offset><Length>1356</Length></Chunk></ChunkList>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:c7f86e87-1528-5556-b18a-07e61148d27f</Id>
+      
+      <ChunkList><Chunk><Path>CPL.xml</Path><VolumeIndex>1</VolumeIndex><Offset>0</Offset><Length>2022</Length></Chunk></ChunkList>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:a8dcb703-17b9-5c84-6f6c-d24bbd0ebc2d</Id>
+      
+      <ChunkList><Chunk><Path>a8dcb703-17b9-5c84-6f6c-d24bbd0ebc2d.mxf</Path><VolumeIndex>1</VolumeIndex><Offset>0</Offset><Length>23592</Length></Chunk></ChunkList>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:b7cfe757-d359-5ae4-7fa3-d152bbe712b7</Id>
+      
+      <ChunkList><Chunk><Path>b7cfe757-d359-5ae4-7fa3-d152bbe712b7.mxf</Path><VolumeIndex>1</VolumeIndex><Offset>0</Offset><Length>29022</Length></Chunk></ChunkList>
+    </Asset>
+  </AssetList>
+</AssetMap>

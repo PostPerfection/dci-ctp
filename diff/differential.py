@@ -23,19 +23,18 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORPUS = os.path.abspath(os.path.join(HERE, "..", "corpus"))
-DCPDOCTOR = os.environ.get(
-    "DCPDOCTOR",
-    os.path.expanduser("~/src/PostPerfection/dcpdoctor/rust/target/release/dcpdoctor"),
-)
+REPO = os.path.dirname(HERE)
+DCPDOCTOR = os.environ.get("DCPDOCTOR") or shutil.which("dcpdoctor") or ""
 CLAIRMETA_DATA = os.environ.get(
     "CLAIRMETA_DATA",
-    os.path.expanduser("~/src/PostPerfection/dci-ctp-work/ClairMeta_Data"),
+    os.path.join(os.path.dirname(REPO), "dci-ctp-work", "ClairMeta_Data"),
 )
 
 # ClairMeta ERROR-level check name -> nearest dcpdoctor Code, for readability and
@@ -182,8 +181,9 @@ def classify(dd, cm):
 
 
 def main():
-    if not os.access(DCPDOCTOR, os.X_OK):
-        print(f"ERROR: dcpdoctor not executable at {DCPDOCTOR}", file=sys.stderr)
+    if not DCPDOCTOR or not os.access(DCPDOCTOR, os.X_OK):
+        print(f"ERROR: dcpdoctor not found at {DCPDOCTOR or '(unset)'}. Set DCPDOCTOR "
+              f"to the binary or put dcpdoctor on PATH", file=sys.stderr)
         sys.exit(2)
     ecl = os.path.join(CLAIRMETA_DATA, "DCP", "ECL-SET")
     if not os.path.isdir(ecl):
@@ -204,6 +204,10 @@ def main():
 
     # --- valid baselines: both should pass clean ---
     for b in manifest["baselines"]:
+        # ClairMeta is a DCP validator, so an IMP lands as TOOL_ERROR whatever
+        # dcpdoctor makes of it and the comparison says nothing
+        if b.get("package_type") == "imf":
+            continue
         path = os.path.join(CORPUS, b["dir"])
         dd = run_dcpdoctor(path, b["flags"])
         cm = run_clairmeta(path)
@@ -219,8 +223,9 @@ def main():
     baseline_cm = {}  # cache ClairMeta failed-check set per baseline dir
     for fx in manifest["fixtures"]:
         # a fixture under valid/ carries no injected defect: it asserts a
-        # flag-gated code on a clean package, so there is nothing to attribute
-        if fx["dir"].startswith("valid/"):
+        # flag-gated code on a clean package, so there is nothing to attribute.
+        # an IMP lands as TOOL_ERROR under ClairMeta whatever it holds.
+        if fx["dir"].startswith("valid/") or fx.get("package_type") == "imf":
             continue
         path = os.path.join(CORPUS, fx["dir"])
         dd = run_dcpdoctor(path, fx["flags"])

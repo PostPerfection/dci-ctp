@@ -11,12 +11,13 @@ Based on the [DCI Compliance Test Plan v1.5.0](https://documents.dcimovies.com/C
 ## Structure
 
 ```
-tests/                    # all fixtures are generated, none are committed
-├── isdcf/                # ISDCF SMPTE Bv2.1 test DCPs (5.1 + 7.1)
-├── synthetic/            # minimal DCPs for specific edge cases
+tests/
+├── isdcf/                # ISDCF SMPTE Bv2.1 test DCPs (5.1 + 7.1), downloaded
+├── synthetic/            # minimal DCPs for specific edge cases, generated
 │   ├── valid/            # should pass validation
 │   └── invalid/          # should fail with specific errors
-└── generated/            # DCPs created by dcpwizard
+├── generated/            # DCPs created by dcpwizard
+└── fixtures/app2e/       # App 2E IMPs, the one committed fixture set
 scripts/
 ├── build_corpus.sh       # build the real baselines + per-code negative corpus
 ├── corpus_gen.py         # clone+mutate the baselines into per-code fixtures
@@ -82,28 +83,27 @@ DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.
 `build_corpus.sh` and `run_corpus.py` both need the ClairMeta ECL set and fail
 naming the missing directory when it is absent.
 
-Coverage against dcpdoctor master: 114 of 124 codes are exercised (101 by isolated
+Coverage against dcpdoctor master: 123 of 124 codes are exercised (110 by isolated
 synthetic + subcommand fixtures, 13 more by the ClairMeta reference packages).
 `ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
-count and the uncovered list share one denominator (114 + 10 = 124). The 10
-uncovered each carry a reason in `UNCOVERED_REASONS`, which `run_corpus.py`
-prints: they need essence, a document shape or an input the corpus does not build
-yet (4K stereoscopic, crafted KDMs, an IMP for the App 2E picture rules). Most fixtures run through
-`dcpdoctor validate`; four codes
-reachable only through other subcommands (kdm, auto-qc) use a
-`subcommand_fixtures` manifest section. A code that reports a measurement rather
+count and the uncovered list share one denominator (123 + 1 = 124). The one
+uncovered code carries its reason in `UNCOVERED_REASONS`, which `run_corpus.py`
+prints: `projector_4k_stereo_support` reads a `<Resolution>` element that no CPL
+schema defines, so no mastering tool writes one and no conformant package can
+fire it. Most fixtures run through `dcpdoctor validate`; seven codes reachable
+only through other subcommands (kdm, auto-qc) use a `subcommand_fixtures`
+manifest section. A code that reports a measurement rather
 than a verdict is covered by the flag that gates it: the fixture and its baseline
 are the same clean package with the gate on and off.
 
-The certificate fixtures need the python `cryptography` package, which
-`corpus_gen.py` uses to build their ST 430-2 chains. The picture/J2K and IMF
-fixtures need grok's `grk_compress` on PATH and a vendored
-`asdcp-wrap`, which `build_corpus.sh` builds once from `dcpwizard/extern/asdcplib`
-and caches. dcpwizard/postkit enforce DCI on their own wrap paths and subset the
-fonts they embed, so `asdcp-wrap` is the only way to get non-DCI essence into an
-AS-DCP MXF or a font of a chosen size into an ST 429-5 timed-text MXF
-(`subtitle_font_too_large`). If either tool is absent
-those fixtures are skipped (recorded in the run output), not failed.
+`build_corpus.sh` needs every tool its fixtures use and fails naming the one it
+could not find: dcpwizard, imfwizard, grok's `grk_compress` on PATH, DCP-o-matic's
+`dcpomatic2_create` and `dcpomatic2_cli`, and the python `cryptography` package
+that `corpus_gen.py` builds the ST 430-2 certificate chains with. It also builds
+`asdcp-wrap` once from `dcpwizard/extern/asdcplib` and caches it: dcpwizard and
+postkit enforce DCI on their own wrap paths and subset the fonts they embed, so
+the raw wrapper is the only way to get non-DCI essence into an AS-DCP MXF or a
+font of a chosen size into an ST 429-5 timed-text MXF (`subtitle_font_too_large`).
 
 ### ClairMeta reference packages
 
@@ -134,19 +134,32 @@ CLAIRMETA_DATA=../../dci-ctp-work/ClairMeta_Data \
 uv run --project diff diff/differential.py
 ```
 
-ClairMeta's MXF-essence checks need `asdcp-info`, `asdcp-unwrap` and `sox` on PATH;
-absent them they bypass silently, so the diff then covers XML/structure/signature/cert
-only. Photon is never invoked: the one IMF IMP in the corpus lands as TOOL_ERROR under
-ClairMeta, which is a DCP validator.
+ClairMeta's MXF-essence checks shell out to `asdcp-info` and `asdcp-unwrap`, and
+raise rather than bypassing when they are absent, which lands the package in
+TOOL_ERROR. `build_corpus.sh` builds both from `dcpwizard/extern/asdcplib` and
+caches them beside `asdcp-wrap`, so put that directory on PATH before running the
+differential. `sox` gates the audio checks the same way. Photon is never invoked:
+the IMF IMPs in the corpus land as TOOL_ERROR under ClairMeta, which is a DCP
+validator.
 
-Full-corpus result (203 packages: 7 baselines, 168 negative fixtures, 28 ECL
-references): BOTH_PASS 38, BOTH_FAIL 112, DCPDOCTOR_ONLY_FAIL 35,
-CLAIRMETA_ONLY_FAIL 10, TOOL_ERROR 8. dcpdoctor caught 168/168 injected fixture
-defects, ClairMeta 127/168. What sits in each bucket and why is in `DESIGN_TODO.md`
-under "Differential vs ClairMeta", so the numbers live in one place.
+Full-corpus result with `asdcp-unwrap` and `asdcp-info` on PATH (205 packages:
+7 baselines, 170 negative fixtures, 28 ECL references): BOTH_PASS 36,
+BOTH_FAIL 120, DCPDOCTOR_ONLY_FAIL 30, CLAIRMETA_ONLY_FAIL 14, TOOL_ERROR 5.
+dcpdoctor caught 170/170 injected fixture defects, ClairMeta 133/170. The
+manifest declares more fixtures than that: the flag-gated and env-gated ones
+inject no defect, and an IMP lands as TOOL_ERROR under ClairMeta whatever it
+holds, so the differential leaves both out.
+
+All five TOOL_ERROR rows are ClairMeta raising instead of returning a verdict.
+Four are ClairMeta defects on packages dcpdoctor reads fine: `cpl_missing_reel`
+and `dom_cpl_missing_reel` raise a `TypeError` on a CPL with no ReelList,
+`dom_signature_invalid` and `dom_certificate_chain_broken` raise one on a
+tampered signature and cert chain. The fifth, `picture_invalid_frame_rate`, is
+the IMF IMP, whose CPL carries a SequenceList rather than the ReelList a DCP
+validator looks for.
 
 The differential runs as an optional, non-blocking CI job that uploads the report
-as an artifact, over the same 203 packages: CI fetches the ECL set too.
+as an artifact, over the same 205 packages: CI fetches the ECL set too.
 
 ## Signature survey vs xmlsec1
 

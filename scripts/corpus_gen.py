@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 CORPUS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "corpus"))
+REPO = os.path.dirname(CORPUS)
 BASE = os.path.join(CORPUS, "valid", "dcp_ov")
 MONO = os.path.join(CORPUS, ".mono_src")  # unlabeled-sound source (built by build_corpus.sh)
 THREE_D = os.path.join(CORPUS, "valid", "dcp_3d")
@@ -36,6 +37,15 @@ ATMOS = os.path.join(CORPUS, "valid", "dcp_atmos")
 ENC_SRC = os.path.join(CORPUS, ".enc_src")  # encrypted (unsigned) DCP, built by build_corpus.sh
 BITRATE_SRC = os.path.join(CORPUS, ".bitrate_src")  # 3D at full 2K bandwidth, over the DCI peak
 IMF_SRC = os.path.join(CORPUS, "valid", "imf_ov")  # IMF IMP, built by build_corpus.sh
+
+# the App 2E descriptor rules only run in IMF mode
+APP2E_FLAGS = ["--imf"]
+APP2E_FIXTURES = [
+    ("cinema_profile", "picture_not_imf_profile"),
+    ("colour_missing", "picture_colour_missing"),
+    ("label_mismatch", "picture_coding_label_mismatch"),
+    ("layout_mismatch", "picture_pixel_layout_mismatch"),
+]
 NONDCI_MXF = os.path.join(CORPUS, ".nondci", "nondci_res.mxf")  # non-DCI J2K wrapped by asdcp-wrap
 # where build_corpus.sh caches its asdcplib build. dcpwizard and postkit both
 # subset the fonts they embed, so this is the only wrapper that puts a font of a
@@ -967,6 +977,45 @@ def certificate_chain(*, leaf_key_size=2048, leaf_common_name=LEAF_COMMON_NAME,
     return [leaf, intermediate, root]
 
 
+# a KDM DeviceList naming no device carries this one SHA-1 digest of the empty
+# string, the DCI marker for "play on any trusted device"
+ASSUME_TRUST_THUMBPRINT = "2jmj7l5rSw0yVb/vlWAYkK/YBwk="
+# any other well-formed 20-byte digest, so the list names a device as well
+NAMED_DEVICE_THUMBPRINT = base64.b64encode(hashlib.sha1(b"ctp-device").digest()).decode()
+# three base64 characters decode to two bytes, short of a SHA-1 digest
+SHORT_DIGEST = "AAAA"
+
+
+def write_kdm_digest_variants(subcmd_dir):
+    """Derive the three digest-rule KDMs from the valid one. Each edit breaks the
+    document signature, which is why these run under the kdm subcommand rather
+    than as package fixtures: `dcpdoctor kdm` reports every rule it can and the
+    assertion is per code."""
+    valid = os.path.join(subcmd_dir, "kdm_valid.xml")
+    source = read(valid)
+    thumbprint = f"<CertificateThumbprint>{ASSUME_TRUST_THUMBPRINT}</CertificateThumbprint>"
+    assert thumbprint in source, f"{valid} carries no assume-trust thumbprint"
+
+    write(os.path.join(subcmd_dir, "kdm_thumbprint_short.xml"),
+          source.replace(thumbprint,
+                         f"<CertificateThumbprint>{SHORT_DIGEST}</CertificateThumbprint>", 1))
+
+    write(os.path.join(subcmd_dir, "kdm_named_and_assume_trust.xml"),
+          source.replace(
+              thumbprint,
+              f"{thumbprint}\n            "
+              f"<CertificateThumbprint>{NAMED_DEVICE_THUMBPRINT}</CertificateThumbprint>", 1))
+
+    # ST 430-1 puts ContentAuthenticator straight after ContentTitleText, so the
+    # schema pass stays clean and only the digest-length rule fires
+    authenticated, count = re.subn(
+        r"(</ContentTitleText>\n)",
+        rf"\1        <ContentAuthenticator>{SHORT_DIGEST}</ContentAuthenticator>\n",
+        source, count=1)
+    assert count == 1, f"{valid} carries no <ContentTitleText>"
+    write(os.path.join(subcmd_dir, "kdm_content_authenticator_short.xml"), authenticated)
+
+
 def write_kdm_signing_chain(directory):
     """A conformant chain as PEM files for dcpwizard's kdm subcommand. Its life
     starts in 2020, so dcpwizard accepts a KDM window that is valid today: the
@@ -1268,6 +1317,26 @@ def _(d):
         return edited
 
     edit_cpl_element(d, "MainPictureActiveArea", widen)
+
+
+# xs:language accepts a primary subtag of up to eight letters, so this passes the
+# XSD pattern and only the RFC 5646 registry lookup rejects it
+UNREGISTERED_LANGUAGE_TAG = "abcdefgh"
+
+
+@fixture("cpl_invalid_language", ["cpl_invalid_language"], [],
+         "MainSound carries an eight-letter primary subtag that the IANA registry "
+         "does not list. ST 429-7 types Language as xs:language, whose pattern the "
+         "tag satisfies, so the schema pass stays clean and the language check is "
+         "the only thing that fires.")
+def _(d):
+    p = cpl_path(d)
+    edited, count = re.subn(
+        r"(\s*)</((?:[\w.-]+:)?)MainSound>",
+        rf"\1  <\g<2>Language>{UNREGISTERED_LANGUAGE_TAG}</\g<2>Language>\1</\g<2>MainSound>",
+        read(p), count=1)
+    assert count == 1, f"no <MainSound> in the CPL of {d}"
+    write(p, edited)
 
 
 NON_ISDCF_TITLE = "BadNameNoFields"
@@ -2159,8 +2228,8 @@ def main():
     def build_fixture(f, name, src, baseline):
         missing = [r for r in f["requires"] if not os.path.exists(r)]
         if missing:
-            print(f"  SKIP invalid/{name} (missing {', '.join(missing)})")
-            return
+            sys.exit(f"ERROR: invalid/{name} needs {', '.join(missing)}, which "
+                     f"scripts/build_corpus.sh did not build")
         d = clone(os.path.join(inv, name), copy_mxf=f["copy_mxf"], src=src)
         f["fn"](d)
         if f["reseal"]:
@@ -2184,8 +2253,8 @@ def main():
 
     for f in FIXTURES:
         if not os.path.isdir(f["src"]):
-            print(f"  SKIP invalid/{f['name']} (source {f['src']} not built)")
-            continue
+            sys.exit(f"ERROR: invalid/{f['name']} needs {f['src']}, which "
+                     f"scripts/build_corpus.sh did not build")
         build_fixture(f, f["name"], f["src"], f["baseline"])
 
     # the same mutations on a DCP-o-matic package, so a code proves it fires on
@@ -2233,6 +2302,66 @@ def main():
                      "--check-mxf turns the measurement on and no flags leaves it off",
         })
 
+    # schema_validation_skipped needs a schema directory that holds an XSD (or
+    # dcpdoctor falls through to the one it ships) but not the one the document
+    # needs. One placeholder XSD does both.
+    partial = os.path.join(CORPUS, ".schemas_partial")
+    os.makedirs(partial, exist_ok=True)
+    write(os.path.join(partial, "placeholder.xsd"),
+          '<?xml version="1.0"?>\n'
+          '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>\n')
+    manifest["fixtures"].append({
+        "dir": "valid/dcp_ov",
+        "package_type": "dcp",
+        "is_valid_baseline": False,
+        "expected_codes": ["schema_validation_skipped"],
+        "also_emits": [],
+        "flags": [],
+        "env": {"DCPDOCTOR_SCHEMA_DIR": "@.schemas_partial"},
+        "baseline": "valid/dcp_ov",
+        "baseline_flags": [],
+        "notes": "the base DCP validated against a schema directory missing every "
+                 "XSD its documents need; the baseline is the same package with "
+                 "dcpdoctor's own schemas/, which asserts the pass runs there",
+    })
+
+    # App 2E picture-descriptor fixtures. dcpdoctor's write_app2e_fixtures
+    # example writes them (see their README); they are committed rather than
+    # generated here because building an App 2E track file needs an AS-02 writer
+    # this corpus has no other use for. Copied in so every fixture path the
+    # manifest names is corpus-relative.
+    app2e_source = os.path.join(REPO, "tests", "fixtures", "app2e")
+    app2e_dest = os.path.join(CORPUS, "app2e")
+    if not os.path.isdir(os.path.join(app2e_source, "clean")):
+        sys.exit(f"ERROR: App 2E fixtures not at {app2e_source}. Regenerate them with "
+                 f"dcpdoctor's write_app2e_fixtures example (see that directory's README)")
+    if os.path.isdir(app2e_dest):
+        shutil.rmtree(app2e_dest)
+    shutil.copytree(app2e_source, app2e_dest)
+    manifest["baselines"].append({
+        "dir": "app2e/clean",
+        "package_type": "imf",
+        "is_valid_baseline": True,
+        "expected_codes": [],
+        "flags": APP2E_FLAGS,
+        "standard": "SMPTE",
+        "notes": "clean App 2E IMP, the baseline the four descriptor fixtures diverge from",
+    })
+    for name, code in APP2E_FIXTURES:
+        manifest["fixtures"].append({
+            "dir": f"app2e/{name}",
+            "package_type": "imf",
+            "is_valid_baseline": False,
+            "expected_codes": [code],
+            "also_emits": [],
+            "flags": APP2E_FLAGS,
+            "baseline": "app2e/clean",
+            "baseline_flags": APP2E_FLAGS,
+            "notes": f"App 2E IMP whose picture descriptor breaks the {code} rule",
+        })
+
+    write_kdm_digest_variants(os.path.join(CORPUS, "subcmd"))
+
     # fixtures reachable only through non-validate subcommands. Each runs
     # `dcpdoctor <subcommand> [args]` where an @name arg resolves to a file in
     # corpus/subcmd. auto-qc prints findings as text (not Codes), so those carry
@@ -2246,6 +2375,18 @@ def main():
          "args": ["@kdm_future.xml"], "baseline_args": ["@kdm_valid.xml"],
          "expected_codes": ["kdm_not_yet_valid"],
          "notes": "KDM ContentKeysNotValidBefore in the future"},
+        {"name": "kdm_thumbprint_invalid", "subcommand": "kdm", "dir": "subcmd",
+         "args": ["@kdm_thumbprint_short.xml"], "baseline_args": ["@kdm_valid.xml"],
+         "expected_codes": ["kdm_thumbprint_invalid"],
+         "notes": "DeviceList thumbprint that does not decode to 20 bytes"},
+        {"name": "kdm_content_authenticator_invalid", "subcommand": "kdm", "dir": "subcmd",
+         "args": ["@kdm_content_authenticator_short.xml"], "baseline_args": ["@kdm_valid.xml"],
+         "expected_codes": ["kdm_content_authenticator_invalid"],
+         "notes": "ContentAuthenticator that does not decode to 20 bytes"},
+        {"name": "kdm_assume_trust_conflict", "subcommand": "kdm", "dir": "subcmd",
+         "args": ["@kdm_named_and_assume_trust.xml"], "baseline_args": ["@kdm_valid.xml"],
+         "expected_codes": ["kdm_assume_trust_conflict"],
+         "notes": "DeviceList naming a device alongside the DCI assume-trust thumbprint"},
         {"name": "sound_clipping", "subcommand": "auto-qc", "dir": "subcmd",
          "args": ["--audio", "@clip.wav"], "baseline_args": ["--audio", "@normal.wav"],
          "expected_codes": ["sound_clipping"], "match": {"sound_clipping": "Audio clipping"},
@@ -2255,13 +2396,13 @@ def main():
          "expected_codes": ["sound_silent"], "match": {"sound_silent": "Audio silence"},
          "notes": "near-silent audio; auto-qc reports silence as a finding string"},
     ]
-    # drop any subcommand fixture whose input files were not built
     subcmd_dir = os.path.join(CORPUS, "subcmd")
-    manifest["subcommand_fixtures"] = [
-        sf for sf in manifest["subcommand_fixtures"]
-        if all(not a.startswith("@") or os.path.exists(os.path.join(subcmd_dir, a[1:]))
-               for a in sf["args"])
-    ]
+    for sf in manifest["subcommand_fixtures"]:
+        for a in sf["args"] + sf["baseline_args"]:
+            if a.startswith("@") and not os.path.exists(os.path.join(subcmd_dir, a[1:])):
+                sys.exit(f"ERROR: subcommand fixture {sf['name']} needs "
+                         f"{os.path.join(subcmd_dir, a[1:])}, which "
+                         f"scripts/build_corpus.sh did not build")
 
     # keep the reference_packages section scan_reference.py appended, or a
     # regen silently drops coverage from 73 to 65 until it is re-run

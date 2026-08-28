@@ -24,6 +24,12 @@ jobs:
           path: dcpwizard
           submodules: recursive
 
+      - uses: actions/checkout@v4
+        with:
+          repository: PostPerfection/imfwizard
+          path: imfwizard
+          submodules: recursive
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
@@ -84,12 +90,26 @@ jobs:
           CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: ./scripts/download_clairmeta_data.sh
 
+      - name: Install DCP-o-matic CLI
+        run: |
+          curl -fSL --retry 3 --retry-all-errors -A "Mozilla/5.0" \
+            -o "$RUNNER_TEMP/dcpomatic-cli.deb" \
+            "https://dcpomatic.com/dl?id=ubuntu-24.04-x86-cli&version=$DCPOMATIC_VERSION"
+          file "$RUNNER_TEMP/dcpomatic-cli.deb" | grep -q 'Debian binary package'
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$RUNNER_TEMP/dcpomatic-cli.deb"
+        env:
+          DCPOMATIC_VERSION: 2.18.48
+
       - name: Build dcpdoctor
         working-directory: dcpdoctor/rust
         run: cargo build --release --locked
 
       - name: Build dcpwizard
         working-directory: dcpwizard/rust
+        run: cargo build --release --locked
+
+      - name: Build imfwizard
+        working-directory: imfwizard/rust
         run: cargo build --release --locked
 
       - name: Create synthetic fixtures
@@ -117,7 +137,9 @@ jobs:
         env:
           CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: |
+          DCPDOCTOR="$PWD/dcpdoctor/rust/target/release/dcpdoctor" \
           DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
+          IMFWIZARD="$PWD/imfwizard/rust/target/release/imfwizard" \
           ./scripts/build_corpus.sh
 
       - name: Run per-code corpus assertions
@@ -223,6 +245,12 @@ jobs:
           path: dcpwizard
           submodules: recursive
 
+      - uses: actions/checkout@v4
+        with:
+          repository: PostPerfection/imfwizard
+          path: imfwizard
+          submodules: recursive
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install dependencies
@@ -275,6 +303,16 @@ jobs:
           CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: ./scripts/download_clairmeta_data.sh
 
+      - name: Install DCP-o-matic CLI
+        run: |
+          curl -fSL --retry 3 --retry-all-errors -A "Mozilla/5.0" \
+            -o "$RUNNER_TEMP/dcpomatic-cli.deb" \
+            "https://dcpomatic.com/dl?id=ubuntu-24.04-x86-cli&version=$DCPOMATIC_VERSION"
+          file "$RUNNER_TEMP/dcpomatic-cli.deb" | grep -q 'Debian binary package'
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$RUNNER_TEMP/dcpomatic-cli.deb"
+        env:
+          DCPOMATIC_VERSION: 2.18.48
+
       - name: Build dcpdoctor
         working-directory: dcpdoctor/rust
         run: cargo build --release --locked
@@ -283,18 +321,30 @@ jobs:
         working-directory: dcpwizard/rust
         run: cargo build --release --locked
 
+      - name: Build imfwizard
+        working-directory: imfwizard/rust
+        run: cargo build --release --locked
+
       - name: Build per-code corpus
         env:
           CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: |
+          DCPDOCTOR="$PWD/dcpdoctor/rust/target/release/dcpdoctor" \
           DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
+          IMFWIZARD="$PWD/imfwizard/rust/target/release/imfwizard" \
           ./scripts/build_corpus.sh
 
+      # ClairMeta shells out to asdcp-unwrap and asdcp-info for its MXF-essence
+      # checks and raises when they are missing, so the build_corpus.sh cache of
+      # them goes on PATH here
       - name: Run differential harness
         working-directory: diff
         env:
           CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: |
+          asdcp=/tmp/ctp-corpus-src/asdcplib-build/src
+          PATH="$asdcp:$PATH" \
+          LD_LIBRARY_PATH="$asdcp:${LD_LIBRARY_PATH:-}" \
           DCPDOCTOR="$GITHUB_WORKSPACE/dcpdoctor/rust/target/release/dcpdoctor" \
           uv run differential.py
 

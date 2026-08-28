@@ -14,17 +14,16 @@ agent diffs these against ClairMeta's own reference results.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
-CORPUS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "corpus"))
-DCPDOCTOR = os.environ.get(
-    "DCPDOCTOR",
-    os.path.expanduser("~/src/PostPerfection/dcpdoctor/rust/target/release/dcpdoctor"),
-)
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CORPUS = os.path.join(REPO, "corpus")
+DCPDOCTOR = os.environ.get("DCPDOCTOR") or shutil.which("dcpdoctor") or ""
 ROOT = os.environ.get(
     "CLAIRMETA_DATA",
-    os.path.expanduser("~/src/PostPerfection/dci-ctp-work/ClairMeta_Data"),
+    os.path.join(os.path.dirname(REPO), "dci-ctp-work", "ClairMeta_Data"),
 )
 ECL = os.path.join(ROOT, "DCP", "ECL-SET")
 # the reference packages carry real essence, so read it

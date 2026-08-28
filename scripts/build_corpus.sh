@@ -16,15 +16,12 @@ REPO_DIR="$(dirname "$SCRIPT_DIR")"
 CORPUS="$REPO_DIR/corpus"
 VALID="$CORPUS/valid"
 
-DCPWIZARD="${DCPWIZARD:-$(command -v dcpwizard 2>/dev/null || echo "$HOME/src/PostPerfection/dcpwizard/rust/target/release/dcpwizard")}"
+DCPWIZARD="${DCPWIZARD:-$(command -v dcpwizard 2>/dev/null || true)}"
 
 if [[ ! -x "$DCPWIZARD" ]]; then
-    echo "ERROR: dcpwizard not found at $DCPWIZARD" >&2
+    echo "ERROR: dcpwizard not found (set DCPWIZARD to the binary or put dcpwizard on PATH)" >&2
     exit 1
 fi
-
-export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:$HOME/bin/grok/lib64"
-export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}:$HOME/bin/grok/lib64/pkgconfig"
 
 SRCDIR="${CTP_SRC_DIR:-/tmp/ctp-corpus-src}"
 mkdir -p "$SRCDIR"
@@ -158,69 +155,91 @@ echo "  built encrypted source, KDMs and audio fixtures"
 
 # non-DCI J2K essence + IMF IMP, for the picture/j2k codes. grok's grk_compress
 # and (for the wrap bypass) the vendored asdcplib asdcp-wrap are both needed.
-export PATH="$PATH:$HOME/bin/grok/bin"
-GRK="$(command -v grk_compress || true)"
+if ! command -v grk_compress >/dev/null; then
+    echo "ERROR: grk_compress not found on PATH; the J2K and IMF fixtures need it" >&2
+    exit 1
+fi
 
-# build asdcp-wrap once, cached in the source dir (dcpwizard/postkit enforce DCI
-# on their wrap paths and subset the fonts they embed, so the raw C++ wrapper is
-# the only way to get non-DCI essence into an AS-DCP MXF or a font of a chosen
-# size into an ST 429-5 timed-text MXF). Resolved beside the dcpwizard binary, so
-# a CI checkout finds it where a working copy does.
+# build the asdcplib tools once, cached in the source dir. asdcp-wrap is the only
+# way to get non-DCI essence into an AS-DCP MXF or a font of a chosen size into an
+# ST 429-5 timed-text MXF, since dcpwizard and postkit enforce DCI on their wrap
+# paths and subset the fonts they embed. asdcp-unwrap and asdcp-info are what
+# ClairMeta shells out to for its MXF-essence checks, and it raises rather than
+# bypassing when they are absent. Resolved beside the dcpwizard binary, so a CI
+# checkout finds it where a working copy does.
 WIZARD_REPO="$(cd "$(dirname "$DCPWIZARD")/../../.." 2>/dev/null && pwd || echo "")"
 ASDCPLIB_SRC="${ASDCPLIB_SRC:-$WIZARD_REPO/extern/asdcplib}"
 ASDCP_BUILD="$SRCDIR/asdcplib-build"
 WRAP="$ASDCP_BUILD/src/asdcp-wrap"
-if [[ ! -x "$WRAP" && -d "$ASDCPLIB_SRC" ]]; then
+if [[ ! -x "$WRAP" ]]; then
+    if [[ ! -d "$ASDCPLIB_SRC" ]]; then
+        echo "ERROR: asdcplib source not at $ASDCPLIB_SRC; set ASDCPLIB_SRC or check out" >&2
+        echo "dcpwizard's submodules (git submodule update --init --recursive)" >&2
+        exit 1
+    fi
     echo "Building asdcp-wrap (cached in $ASDCP_BUILD)..."
     mkdir -p "$ASDCP_BUILD"
     (cd "$ASDCP_BUILD" && cmake "$ASDCPLIB_SRC" >/dev/null 2>&1 \
-        && make asdcp-wrap -j"$(nproc)" >/dev/null 2>&1) || echo "  asdcp-wrap build failed"
+        && make asdcp-wrap asdcp-unwrap asdcp-info -j"$(nproc)" >/dev/null 2>&1)
 fi
+for tool in asdcp-wrap asdcp-unwrap asdcp-info; do
+    if [[ ! -x "$ASDCP_BUILD/src/$tool" ]]; then
+        echo "ERROR: $tool did not build in $ASDCP_BUILD" >&2
+        exit 1
+    fi
+done
 export LD_LIBRARY_PATH="$ASDCP_BUILD/src:$LD_LIBRARY_PATH"
+export PATH="$ASDCP_BUILD/src:$PATH"
 
 # non-DCI resolution essence: 1920x1080 (not a DCP-DCI size), plain codestream
 # (grok without a cinema profile => Rsiz 0, single tile-part). Covers
 # picture_invalid_resolution and j2k_invalid_profile.
 NONDCI="$CORPUS/.nondci"
 rm -rf "$NONDCI"; mkdir -p "$NONDCI"
-if [[ -x "$WRAP" && -n "$GRK" ]]; then
-    NF="$SRCDIR/nondci_frames"; NJ="$SRCDIR/nondci_j2c"
-    if [[ ! -d "$NJ" ]]; then
-        rm -rf "$NF" "$NJ"; mkdir -p "$NF" "$NJ"
-        ffmpeg -y -f lavfi -i testsrc2=size=1920x1080:rate=24:duration=2 \
-               -pix_fmt rgb24 "$NF/f_%04d.png" 2>/dev/null
-        n=0; for f in "$NF"/*.png; do
-            printf -v out "$NJ/frame_%04d.j2c" "$n"
-            grk_compress -i "$f" -o "$out" >/dev/null 2>&1; n=$((n+1))
-        done
-    fi
-    "$WRAP" "$NJ" "$NONDCI/nondci_res.mxf" >/dev/null 2>&1 \
-        && echo "  wrapped non-DCI 1920x1080 essence" \
-        || echo "  asdcp-wrap of non-DCI essence failed"
-else
-    echo "  skipping non-DCI essence (asdcp-wrap or grk_compress unavailable)"
+NF="$SRCDIR/nondci_frames"; NJ="$SRCDIR/nondci_j2c"
+if [[ ! -d "$NJ" ]]; then
+    rm -rf "$NF" "$NJ"; mkdir -p "$NF" "$NJ"
+    ffmpeg -y -f lavfi -i testsrc2=size=1920x1080:rate=24:duration=2 \
+           -pix_fmt rgb24 "$NF/f_%04d.png" 2>/dev/null
+    n=0; for f in "$NF"/*.png; do
+        printf -v out "$NJ/frame_%04d.j2c" "$n"
+        grk_compress -i "$f" -o "$out" >/dev/null 2>&1; n=$((n+1))
+    done
 fi
+"$WRAP" "$NJ" "$NONDCI/nondci_res.mxf" >/dev/null 2>&1 \
+    || { echo "ERROR: asdcp-wrap of the non-DCI essence failed" >&2; exit 1; }
+echo "  wrapped non-DCI 1920x1080 essence"
+
+# 2K IMF profile (Rsiz 0x0400), which App 2E requires
+IMF_PROFILE="2K"
 
 # IMF IMP for picture_invalid_frame_rate: 8-bit frames -> grok J2K -> imfwizard
 # create. imfwizard enforces App-2E resolution at wrap time, so frame rate is the
 # only pic-vs-CPL mismatch we can inject (by editing the CPL edit rate).
-IW="${IMFWIZARD:-$HOME/src/PostPerfection/imfwizard/rust/target/release/imfwizard}"
-rm -rf "$VALID/imf_ov"
-if [[ -x "$IW" && -n "$GRK" ]]; then
-    IF="$SRCDIR/imf_frames"; IJ="$SRCDIR/imf_j2c"
-    if [[ ! -d "$IJ" ]]; then
-        rm -rf "$IF" "$IJ"; mkdir -p "$IF"
-        ffmpeg -y -f lavfi -i testsrc2=size=2048x1080:rate=24:duration=2 \
-               -pix_fmt rgb24 "$IF/f_%04d.png" 2>/dev/null
-        "$IW" encode -i "$IF" -o "$IJ" >/dev/null 2>&1
-    fi
-    "$IW" create --video "$IJ" --audio "$WAV51" \
-        --title "CTPImf_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
-        --output "$VALID/imf_ov" >/dev/null 2>&1 \
-        && echo "  built valid/imf_ov (IMP)" || echo "  imfwizard IMP build failed"
-else
-    echo "  skipping IMF IMP (imfwizard or grk_compress unavailable)"
+IW="${IMFWIZARD:-$(command -v imfwizard 2>/dev/null || true)}"
+if [[ ! -x "$IW" ]]; then
+    echo "ERROR: imfwizard not found (set IMFWIZARD to the binary or put it on PATH);" >&2
+    echo "the IMF IMP fixtures need it" >&2
+    exit 1
 fi
+rm -rf "$VALID/imf_ov"
+# imfwizard create rejects a codestream whose Rsiz is not an IMF profile, and
+# its own encode subcommand writes Rsiz 0, so grok does the encoding here
+IF="$SRCDIR/imf_frames"; IJ="$SRCDIR/imf_j2c"
+if [[ ! -d "$IJ" ]]; then
+    rm -rf "$IF" "$IJ"; mkdir -p "$IF" "$IJ"
+    ffmpeg -y -f lavfi -i testsrc2=size=2048x1080:rate=24:duration=2 \
+           -pix_fmt rgb24 "$IF/f_%04d.png" 2>/dev/null
+    n=0; for f in "$IF"/*.png; do
+        printf -v out "$IJ/frame_%04d.j2c" "$n"
+        grk_compress -i "$f" -o "$out" -z "$IMF_PROFILE" >/dev/null 2>&1; n=$((n+1))
+    done
+fi
+"$IW" create --video "$IJ" --audio "$WAV51" \
+    --title "CTPImf_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
+    --output "$VALID/imf_ov" >/dev/null 2>&1 \
+    || { echo "ERROR: imfwizard IMP build failed" >&2; exit 1; }
+echo "  built valid/imf_ov (IMP)"
 
 # second mastering tool: DCP-o-matic, SMPTE and Interop. The config dir is
 # corpus-local so a build does not depend on the developer's own DoM settings.
@@ -235,19 +254,22 @@ build_dom() {
     "$DOM_CLI" --config "$DOMCONFIG" "$film" >/dev/null 2>&1
     local dcp
     dcp=$(find "$film" -maxdepth 1 -mindepth 1 -type d -name "${name}_*" | head -1)
-    if [[ -n "$dcp" ]]; then
-        mv "$dcp" "$out" && echo "  built $out (DCP-o-matic $standard)"
-    else
-        echo "  DCP-o-matic $standard build failed"
+    if [[ -z "$dcp" ]]; then
+        echo "ERROR: DCP-o-matic $standard build produced nothing in $film" >&2
+        exit 1
     fi
+    mv "$dcp" "$out"
+    echo "  built $out (DCP-o-matic $standard)"
 }
-if [[ -x "$DOM" && -x "$DOM_CLI" ]]; then
-    mkdir -p "$DOMCONFIG"
-    build_dom "$VALID/dcp_dom_ov" SMPTE CTPDom
-    build_dom "$VALID/dcp_dom_interop" interop CTPDomIop
-else
-    echo "  skipping DCP-o-matic baselines (dcpomatic2_create/dcpomatic2_cli unavailable)"
+if [[ ! -x "$DOM" || ! -x "$DOM_CLI" ]]; then
+    echo "ERROR: dcpomatic2_create/dcpomatic2_cli not found; the second mastering" >&2
+    echo "tool's baselines need them. Install the DCP-o-matic CLI package, or set" >&2
+    echo "DCPOMATIC_CREATE and DCPOMATIC_CLI." >&2
+    exit 1
 fi
+mkdir -p "$DOMCONFIG"
+build_dom "$VALID/dcp_dom_ov" SMPTE CTPDom
+build_dom "$VALID/dcp_dom_interop" interop CTPDomIop
 
 echo "Generating negative fixtures..."
 python3 "$SCRIPT_DIR/corpus_gen.py"

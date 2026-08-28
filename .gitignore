@@ -6,6 +6,9 @@ tests/synthetic/
 # corpus/ is rebuilt by scripts/build_corpus.sh (real base DCP + per-code mutations + manifest)
 corpus/
 *.mxf
+# the App 2E fixtures are committed: generating one needs an AS-02 writer this
+# repo has no other use for
+!tests/fixtures/app2e/**/*.mxf
 
 # differential harness (diff/): venv and generated reports
 diff/.venv/

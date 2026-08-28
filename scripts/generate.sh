@@ -7,17 +7,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 DEST="$REPO_DIR/tests/generated"
-DCPWIZARD="${DCPWIZARD:-$(command -v dcpwizard 2>/dev/null || echo "$HOME/src/dcpwizard/rust/target/release/dcpwizard")}"
-SOURCE_VIDEO="${SOURCE_VIDEO:-$HOME/dom_distribution/sintel-2048-surround.mp4}"
+DCPWIZARD="${DCPWIZARD:-$(command -v dcpwizard 2>/dev/null || true)}"
+SOURCE_VIDEO="${SOURCE_VIDEO:-}"
 
 if [[ ! -x "$DCPWIZARD" ]]; then
-    echo "ERROR: dcpwizard not found at $DCPWIZARD"
+    echo "ERROR: dcpwizard not found (set DCPWIZARD to the binary or put dcpwizard on PATH)"
     exit 1
 fi
 
 if [[ ! -f "$SOURCE_VIDEO" ]]; then
-    echo "ERROR: Source video not found: $SOURCE_VIDEO"
-    echo "Set SOURCE_VIDEO env var to a test video"
+    echo "ERROR: source video not found: ${SOURCE_VIDEO:-(unset)}"
+    echo "Set SOURCE_VIDEO to a video with a picture and a sound track"
     exit 1
 fi
 

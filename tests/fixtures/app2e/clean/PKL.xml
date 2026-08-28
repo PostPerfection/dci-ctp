@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PackingList xmlns="http://www.smpte-ra.org/schemas/2067-2/2016/PKL">
+  <Id>urn:uuid:48b16df0-e199-557b-64c5-18216b5d1b31</Id>
+  <IssueDate>2026-01-01T00:00:00+00:00</IssueDate>
+  <Issuer>dcpdoctor</Issuer>
+  <Creator>dcpdoctor write_app2e_fixtures</Creator>
+  <AssetList>
+    <Asset>
+      <Id>urn:uuid:cf649051-fe52-58ef-bd2e-2b2f8f887ffd</Id>
+      <Hash>On3yJQVH2TtpQicGerePOhaInNw=</Hash>
+      <Size>2013</Size>
+      <Type>text/xml</Type>
+      <OriginalFileName>CPL.xml</OriginalFileName>
+      <HashAlgorithm Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:1691d1b0-786c-5ac4-1da7-46e6c5bca1d4</Id>
+      <Hash>D2NijNnDUw4a5IS9j4TqkzaXUbY=</Hash>
+      <Size>23592</Size>
+      <Type>application/mxf</Type>
+      <OriginalFileName>1691d1b0-786c-5ac4-1da7-46e6c5bca1d4.mxf</OriginalFileName>
+      <HashAlgorithm Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+    </Asset>
+    <Asset>
+      <Id>urn:uuid:0ef31464-9b10-5846-9f51-ac2d678c2948</Id>
+      <Hash>n9Gpb/AOiNlf03xcoZtKRL+JSgE=</Hash>
+      <Size>29022</Size>
+      <Type>application/mxf</Type>
+      <OriginalFileName>0ef31464-9b10-5846-9f51-ac2d678c2948.mxf</OriginalFileName>
+      <HashAlgorithm Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>
+    </Asset>
+  </AssetList>
+</PackingList>

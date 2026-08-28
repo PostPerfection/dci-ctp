@@ -66,11 +66,11 @@ quietly drop them. These become the shared corpus for differential testing again
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 
-## Coverage: 114 of 124 codes
+## Coverage: 123 of 124 codes
 
-101 codes have isolated synthetic or subcommand fixtures, and 13 more come from
+110 codes have isolated synthetic or subcommand fixtures, and 13 more come from
 the ClairMeta reference packages, which run with `--check-mxf`. `run_corpus.py`
-prints the live list and a reason per gap, and the 10 remaining gaps are in
+prints the live list and a reason per gap, and the one remaining gap is in
 `UNCOVERED_REASONS`.
 
 Fixture machinery beyond the plain clone+mutate:
@@ -89,6 +89,21 @@ Fixture machinery beyond the plain clone+mutate:
   `subtitle_glyph_missing` fixture is an Interop DCSubtitle, exercising the URI
   form. The SMPTE ST 428-7 form (LoadFont carrying the font asset urn as element
   text) resolves through the ASSETMAP.
+- App 2E picture descriptors: `tests/fixtures/app2e/` holds five one-frame IMPs,
+  one clean and one per descriptor rule, written by dcpdoctor's
+  `write_app2e_fixtures` example. They are the one committed fixture set, because
+  building an App 2E track file needs an AS-02 writer nothing else here uses.
+  `corpus_gen.py` copies them to `corpus/app2e/` so every path the manifest names
+  is corpus-relative, and they run under `--imf`.
+- Env-gated codes: a fixture entry may carry an `env` map that `run_corpus.py`
+  applies to the dcpdoctor run, with an `@name` value resolving inside the
+  corpus. `schema_validation_skipped` uses it, pointing `DCPDOCTOR_SCHEMA_DIR` at
+  a directory holding one placeholder XSD: enough for dcpdoctor to accept it as
+  the schema directory, and missing every schema the documents actually need.
+- KDM digest rules: `write_kdm_digest_variants` edits the valid KDM's DeviceList
+  and ContentAuthenticator. Each edit breaks the document signature, so these run
+  under the `kdm` subcommand, which reports every rule it can and lets the
+  assertion be per code.
 - J2K byte patches walk the codestream markers rather than searching for byte
   patterns: `patch_j2k_guard_bits` zeroes the first frame's QCD guard-bit field
   (RDD 52 requires 1 at 2K, checked by `--deep-j2k`), `patch_j2k_legacy_ffff`
@@ -132,10 +147,11 @@ optional non-blocking CI job (`encryption`) in a few seconds.
 ## Differential validation (dcpdoctor vs ClairMeta)
 
 `diff/differential.py` (uv project, ClairMeta 1.6.2) runs both validators over the
-whole corpus and classifies every package. ClairMeta's MXF-essence checks need
-`asdcp-info`, `asdcp-unwrap` and `sox` on PATH and bypass silently without them,
-so `diff/README.md` covers getting them there. IMF-vs-Photon is not run: the
-corpus's one IMP lands as TOOL_ERROR under ClairMeta, which is a DCP validator.
+whole corpus and classifies every package. ClairMeta's MXF-essence checks shell out
+to `asdcp-info` and `asdcp-unwrap` and raise without them, so `build_corpus.sh`
+builds both alongside `asdcp-wrap` and the differential wants that directory on
+PATH. IMF-vs-Photon is not run: the corpus's IMPs land as TOOL_ERROR under
+ClairMeta, which is a DCP validator.
 Writes `diff/report.{json,md}` (gitignored,
 regenerated). Run:
 
@@ -145,8 +161,8 @@ CLAIRMETA_DATA=../../dci-ctp-work/ClairMeta_Data \
 uv run --project diff diff/differential.py
 ```
 
-The current bucket counts and what moved them live in `DESIGN_TODO.md` under
-"Differential vs ClairMeta", so they stay in one place.
+The current bucket counts are in `README.md` under "Differential validation vs
+ClairMeta", so they stay in one place.
 
 Method: every fixture derives from one dcpwizard base that ClairMeta already
 rejects on schema grounds, so ClairMeta's catch of an injected defect is measured

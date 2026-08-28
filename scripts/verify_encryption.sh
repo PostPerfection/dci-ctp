@@ -16,12 +16,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 
-DCPWIZARD="${DCPWIZARD:-$(command -v dcpwizard 2>/dev/null || echo "$HOME/src/PostPerfection/dcpwizard/rust/target/release/dcpwizard")}"
+DCPWIZARD="${DCPWIZARD:-$(command -v dcpwizard 2>/dev/null || true)}"
 HELPER_DIR="$REPO_DIR/tools/decrypt-check"
 HELPER="$HELPER_DIR/target/release/decrypt-check"
 
 if [[ ! -x "$DCPWIZARD" ]]; then
-    echo "ERROR: dcpwizard not found at $DCPWIZARD (set DCPWIZARD)" >&2
+    echo "ERROR: dcpwizard not found (set DCPWIZARD to the binary or put dcpwizard on PATH)" >&2
     exit 1
 fi
 
@@ -55,18 +55,23 @@ ffmpeg -y -f lavfi -i testsrc2=size=2048x1080:rate=24:duration=1 \
     --title "CTPEnc_TST_F_EN_US_51_2K_PPF_20260720_PPF_SMPTE_OV" \
     --content-type TST --video "$SRC" \
     --encrypt --key-out "$WORK/keys.json" \
-    --output "$WORK/dcp" >/dev/null 2>&1
+    --output "$WORK/dcp" >/dev/null
 
 CPL_ID="$(python3 -c "import json;print(json.load(open('$WORK/keys.json'))['cpl_id'])")"
 echo "  CPL id: $CPL_ID"
 
-# 3. KDM binding the DCP's content keys to the recipient
+# 3. KDM binding the DCP's content keys to the recipient. dcpwizard rejects a
+# signer whose notBefore is not earlier than the day the window opens, and
+# openssl before 3.5 cannot backdate a cert, so the window opens tomorrow.
+KDM_FROM="$(date -u -d tomorrow +%Y-%m-%dT%H:%M:%S+00:00)"
+KDM_TO="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%S+00:00)"
 echo "[3/6] Generating KDM for the recipient..."
 "$DCPWIZARD" kdm \
     --cpl-id "$CPL_ID" --content-title "CTP Encryption Verify" \
     --cert "$WORK/recipient.pem" \
     --signer-cert "$WORK/signer.pem" --signer-key "$WORK/signer.key" \
-    --keys "$WORK/keys.json" --output "$WORK/kdm.xml" >/dev/null 2>&1
+    --valid-from "$KDM_FROM" --valid-to "$KDM_TO" \
+    --keys "$WORK/keys.json" --output "$WORK/kdm.xml" >/dev/null
 
 # 4. independently recover the content keys from the KDM (openssl RSA-OAEP)
 echo "[4/6] Recovering content keys from KDM with recipient private key..."
@@ -89,7 +94,8 @@ openssl req -x509 -newkey rsa:2048 -keyout "$WORK/other.key" -out "$WORK/other.p
     --cpl-id "$CPL_ID" --content-title "CTP Encryption Verify" \
     --cert "$WORK/other.pem" \
     --signer-cert "$WORK/signer.pem" --signer-key "$WORK/signer.key" \
-    --keys "$WORK/keys.json" --output "$WORK/kdm_other.xml" >/dev/null 2>&1
+    --valid-from "$KDM_FROM" --valid-to "$KDM_TO" \
+    --keys "$WORK/keys.json" --output "$WORK/kdm_other.xml" >/dev/null
 if python3 "$SCRIPT_DIR/recover_kdm_key.py" "$WORK/kdm_other.xml" "$WORK/recipient.key" "$WORK/keys.json" >/dev/null 2>&1; then
     echo "ERROR: recovered a key from a KDM addressed to a different recipient" >&2
     exit 1

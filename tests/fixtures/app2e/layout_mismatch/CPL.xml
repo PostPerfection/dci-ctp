@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CompositionPlaylist xmlns="http://www.smpte-ra.org/schemas/2067-3/2016"
+                     xmlns:cc="http://www.smpte-ra.org/schemas/2067-2/2016"
+                     xmlns:app="http://www.smpte-ra.org/ns/2067-21/2021">
+  <Id>urn:uuid:df8e770a-68ff-5e8c-740c-a9cebb7f64fc</Id>
+  <IssueDate>2026-01-01T00:00:00+00:00</IssueDate>
+  <Issuer>dcpdoctor</Issuer>
+  <Creator>dcpdoctor write_app2e_fixtures</Creator>
+  <ContentTitle>layout_mismatch</ContentTitle>
+  <ContentKind>feature</ContentKind>
+  <EditRate>24 1</EditRate>
+  <SegmentList>
+    <Segment>
+      <Id>urn:uuid:60b9ad99-037c-5f15-efd1-3199d33daea6</Id>
+      <SequenceList>
+        <MainImageSequence>
+          <Id>urn:uuid:38a174bb-7f31-5ee4-b18c-4411a9b82792</Id>
+          <TrackId>urn:uuid:07d131d8-81e0-5dab-49e9-069c0c0f36bb</TrackId>
+          <ResourceList>
+            <Resource>
+              <Id>urn:uuid:f12c031b-0f75-50e7-a879-b1158b637e28</Id>
+              <TrackFileId>urn:uuid:f401a717-8d90-5035-05c3-398feabe3661</TrackFileId>
+              <EditRate>24 1</EditRate>
+              <IntrinsicDuration>1</IntrinsicDuration>
+              <EntryPoint>0</EntryPoint>
+              <SourceDuration>1</SourceDuration>
+            </Resource>
+          </ResourceList>
+        </MainImageSequence>
+        <MainAudioSequence>
+          <Id>urn:uuid:8c0414b2-7353-5e46-c4e0-03dd72c6383e</Id>
+          <TrackId>urn:uuid:70ae8fe5-6706-5679-2937-2092293c663c</TrackId>
+          <ResourceList>
+            <Resource>
+              <Id>urn:uuid:4fdda976-03d4-5242-ea7a-5fa459fc098d</Id>
+              <TrackFileId>urn:uuid:f91e4360-fdf1-5ab2-02bb-e540a2aa829b</TrackFileId>
+              <EditRate>24 1</EditRate>
+              <IntrinsicDuration>1</IntrinsicDuration>
+              <EntryPoint>0</EntryPoint>
+              <SourceDuration>1</SourceDuration>
+            </Resource>
+          </ResourceList>
+        </MainAudioSequence>
+      </SequenceList>
+    </Segment>
+  </SegmentList>
+</CompositionPlaylist>

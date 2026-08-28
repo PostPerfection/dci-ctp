@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
-DCPDOCTOR="${DCPDOCTOR:-$(command -v dcpdoctor 2>/dev/null || echo "$HOME/src/dcpdoctor/rust/target/release/dcpdoctor")}"
+DCPDOCTOR="${DCPDOCTOR:-$(command -v dcpdoctor 2>/dev/null || true)}"
 
 # Colors
 RED='\033[0;31m'
@@ -49,8 +49,8 @@ if [[ -n "$CATEGORY" && " $CATEGORIES " != *" $CATEGORY "* ]]; then
 fi
 
 if [[ ! -x "$DCPDOCTOR" ]]; then
-    echo -e "${RED}ERROR: dcpdoctor not found at $DCPDOCTOR${NC}"
-    echo "Set DCPDOCTOR env var or use --dcpdoctor PATH"
+    echo -e "${RED}ERROR: dcpdoctor not found${NC}"
+    echo "Set DCPDOCTOR, use --dcpdoctor PATH, or put dcpdoctor on PATH"
     exit 1
 fi
 

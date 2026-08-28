@@ -14,17 +14,16 @@ Valid baselines must validate with zero error notes.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
-CORPUS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "corpus"))
-DCPDOCTOR = os.environ.get(
-    "DCPDOCTOR",
-    os.path.expanduser("~/src/PostPerfection/dcpdoctor/rust/target/release/dcpdoctor"),
-)
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CORPUS = os.path.join(REPO, "corpus")
+DCPDOCTOR = os.environ.get("DCPDOCTOR") or shutil.which("dcpdoctor") or ""
 CLAIRMETA = os.environ.get(
     "CLAIRMETA_DATA",
-    os.path.expanduser("~/src/PostPerfection/dci-ctp-work/ClairMeta_Data"),
+    os.path.join(os.path.dirname(REPO), "dci-ctp-work", "ClairMeta_Data"),
 )
 
 # every dcpdoctor Code, in source order (dcpdoctor-core/src/lib.rs `Code::as_str`).
@@ -90,30 +89,24 @@ ALL_CODES = [
 # codes not covered by an isolated `dcpdoctor validate` fixture, with why (honest
 # gaps).
 UNCOVERED_REASONS = {
-    "certificate_expired": "fires on real expired cert chains (reference packages); no minimal fixture",
-    "certificate_signature_algorithm_invalid": "deep cert-rule check; fires on real malformed chains only",
-    "schema_validation_skipped": "fires only when no schema directory is found; dcpdoctor ships schemas/, so the pass always runs here",
-    "check_skipped": "fires only when a tool is missing or an input is unreadable in ways the corpus does not stage (ffprobe absent, truncated codestream walk)",
-    "cpl_invalid_language": "the CPL language elements are xs:language, so a bogus tag draws xml_schema_violation with it",
-    "projector_4k_stereo_support": "needs 4K stereoscopic essence; the corpus builds 2K only",
-    "kdm_thumbprint_invalid": "needs a KDM whose recipient thumbprint disagrees with its certificate",
-    "kdm_content_authenticator_invalid": "needs a KDM whose content authenticator is not the signer",
-    "kdm_assume_trust_conflict": "needs --assume-trust against a KDM that fails a trust rule",
-    "picture_not_imf_profile": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
-    "picture_colour_missing": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
-    "picture_coding_label_mismatch": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
-    "picture_pixel_layout_mismatch": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
+    "projector_4k_stereo_support": "reads a <Resolution> element no CPL schema "
+                                   "defines, so no mastering tool writes one and "
+                                   "the check cannot fire on a conformant package",
 }
 
 GREEN, RED, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[0;36m", "\033[0m"
 
 
-def run(dirpath, flags):
+def run(dirpath, flags, extra_env=None):
     full = os.path.join(CORPUS, dirpath)
     # a flag of the form "@name" resolves to a file inside the fixture dir
     resolved = [os.path.join(full, f[1:]) if f.startswith("@") else f for f in flags]
     cmd = [DCPDOCTOR, "validate", "-v", *resolved, full]
-    p = subprocess.run(cmd, capture_output=True, text=True)
+    env = dict(os.environ)
+    # an env value of the form "@name" resolves to a path inside the corpus
+    for name, value in (extra_env or {}).items():
+        env[name] = os.path.join(CORPUS, value[1:]) if value.startswith("@") else value
+    p = subprocess.run(cmd, capture_output=True, text=True, env=env)
     return p.stdout + p.stderr
 
 
@@ -141,8 +134,9 @@ def emitted_codes(output):
 
 
 def main():
-    if not os.access(DCPDOCTOR, os.X_OK):
-        print(f"{RED}ERROR: dcpdoctor not found/executable at {DCPDOCTOR}{NC}")
+    if not DCPDOCTOR or not os.access(DCPDOCTOR, os.X_OK):
+        print(f"{RED}ERROR: dcpdoctor not found at {DCPDOCTOR or '(unset)'}{NC}")
+        print("Set DCPDOCTOR to the binary or put dcpdoctor on PATH")
         sys.exit(1)
 
     with open(os.path.join(CORPUS, "manifest.json")) as f:
@@ -171,7 +165,7 @@ def main():
 
     print(f"\n{CYAN}== negative fixtures =={NC}")
     for fx in manifest["fixtures"]:
-        out = run(fx["dir"], fx["flags"])
+        out = run(fx["dir"], fx["flags"], fx.get("env"))
         # an empty baseline_flags is meaningful: a gated code's baseline is the
         # same package run with the gate off
         base_flags = fx["baseline_flags"] if fx.get("baseline_flags") is not None else fx["flags"]

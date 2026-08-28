@@ -13,13 +13,12 @@ Usage: DCPDOCTOR=/path/to/dcpdoctor signature_survey.py [root ...]
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DCPDOCTOR = os.environ.get(
-    "DCPDOCTOR",
-    os.path.expanduser("~/src/PostPerfection/dcpdoctor/rust/target/release/dcpdoctor"))
+DCPDOCTOR = os.environ.get("DCPDOCTOR") or shutil.which("dcpdoctor") or ""
 
 DSIG_NAMESPACE = "http://www.w3.org/2000/09/xmldsig#"
 SIGNATURE_INVALID_LINE = re.compile(r"signature_invalid - .* \((.+)\)")
@@ -131,8 +130,9 @@ def xmlsec_verdict(path, kind):
 
 def main():
     roots = [os.path.abspath(r) for r in sys.argv[1:]] or [os.path.join(REPO, "corpus")]
-    if not os.access(DCPDOCTOR, os.X_OK):
-        print(f"ERROR: dcpdoctor not found/executable at {DCPDOCTOR}", file=sys.stderr)
+    if not DCPDOCTOR or not os.access(DCPDOCTOR, os.X_OK):
+        print(f"ERROR: dcpdoctor not found at {DCPDOCTOR or '(unset)'}. Set DCPDOCTOR "
+              f"to the binary or put dcpdoctor on PATH", file=sys.stderr)
         return 2
     documents = find_signed_documents(roots)
     if not documents:
