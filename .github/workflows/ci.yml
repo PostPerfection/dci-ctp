@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake xmlsec1
+          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake xmlsec1 unzip
 
       # build grok (jpeg 2000 codec) from source once per tag, cached.
       # provides libgrokj2k on the pkg-config + loader paths and grk_compress on PATH.
@@ -37,11 +37,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.3.12
+          key: grok-${{ runner.os }}-v20.4.0
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.3.12
+          GROK_TAG: v20.4.0
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
@@ -55,6 +55,34 @@ jobs:
           echo "PKG_CONFIG_PATH=$prefix/lib/pkgconfig:$prefix/lib64/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$prefix/lib:$prefix/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           echo "$prefix/bin" >> "$GITHUB_PATH"
+
+      - name: Check test tools
+        shell: bash
+        run: |
+          ffmpeg -version | head -n 1
+          xmllint --version
+          xmlsec1 --version
+          grk_compress -h > /dev/null
+
+      - name: Cache ISDCF reference content
+        uses: actions/cache@v4
+        with:
+          path: tests/isdcf
+          key: isdcf-${{ runner.os }}-v1-${{ hashFiles('scripts/download_isdcf.sh') }}
+
+      - name: Fetch ISDCF reference content
+        run: ./scripts/download_isdcf.sh
+
+      - name: Cache ClairMeta ECL set
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/clairmeta-data
+          key: clairmeta-${{ runner.os }}-v1-${{ hashFiles('scripts/download_clairmeta_data.sh') }}
+
+      - name: Fetch ClairMeta ECL set
+        env:
+          CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
+        run: ./scripts/download_clairmeta_data.sh
 
       - name: Build dcpdoctor
         working-directory: dcpdoctor/rust
@@ -76,21 +104,25 @@ jobs:
           DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
           SOURCE_VIDEO=/tmp/ctp-source.mp4 ./scripts/generate.sh
 
-      # Runs every category. The isdcf cases skip since the 2GB content isn't downloaded.
+      # Runs every category, including the isdcf cases.
       - name: Test packages
         run: |
           DCPDOCTOR="$PWD/dcpdoctor/rust/target/release/dcpdoctor"
           ./scripts/run_tests.sh --dcpdoctor "$DCPDOCTOR"
 
       # Per-error-code negative corpus: one real mutated fixture per code, each
-      # asserting its code fires and is absent on the valid baseline. ClairMeta
-      # reference packages aren't fetched here (~1.5GB), so those checks skip.
+      # asserting its code fires and is absent on the valid baseline. The last
+      # step of build_corpus.sh records the ClairMeta reference-package verdicts.
       - name: Build per-code corpus
+        env:
+          CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: |
           DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
           ./scripts/build_corpus.sh
 
       - name: Run per-code corpus assertions
+        env:
+          CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: |
           DCPDOCTOR="$PWD/dcpdoctor/rust/target/release/dcpdoctor" \
           python3 ./scripts/run_corpus.py
@@ -124,7 +156,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake
+          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake xmlsec1
 
       # build grok (jpeg 2000 codec) from source once per tag, cached.
       # provides libgrokj2k on the pkg-config + loader paths and grk_compress on PATH.
@@ -132,11 +164,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.3.12
+          key: grok-${{ runner.os }}-v20.4.0
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.3.12
+          GROK_TAG: v20.4.0
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
@@ -151,6 +183,14 @@ jobs:
           echo "LD_LIBRARY_PATH=$prefix/lib:$prefix/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           echo "$prefix/bin" >> "$GITHUB_PATH"
 
+      - name: Check test tools
+        shell: bash
+        run: |
+          ffmpeg -version | head -n 1
+          xmllint --version
+          xmlsec1 --version
+          grk_compress -h > /dev/null
+
       - name: Build dcpwizard
         working-directory: dcpwizard/rust
         run: cargo build --release --locked
@@ -161,9 +201,9 @@ jobs:
           ./scripts/verify_encryption.sh
 
   # Optional differential job: diff dcpdoctor against ClairMeta over the corpus.
-  # Informational, never blocks core CI (uploads report.json + report.md). The
-  # ClairMeta ECL packages (~1.5GB) aren't fetched here, so only baselines +
-  # fixtures run; asdcplib is absent so ClairMeta's MXF-essence checks bypass.
+  # Informational, never blocks core CI (uploads report.json + report.md).
+  # Baselines, fixtures and the ClairMeta ECL packages all run. asdcplib is
+  # absent so ClairMeta's MXF-essence checks bypass.
   # Photon/IMF isn't run: the corpus has no IMF packages.
   differential:
     runs-on: ubuntu-24.04
@@ -188,7 +228,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake
+          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake xmlsec1
           curl -LsSf https://astral.sh/uv/install.sh | sh
 
       # build grok (jpeg 2000 codec) from source once per tag, cached.
@@ -197,11 +237,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.3.12
+          key: grok-${{ runner.os }}-v20.4.0
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.3.12
+          GROK_TAG: v20.4.0
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
@@ -216,6 +256,25 @@ jobs:
           echo "LD_LIBRARY_PATH=$prefix/lib:$prefix/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           echo "$prefix/bin" >> "$GITHUB_PATH"
 
+      - name: Check test tools
+        shell: bash
+        run: |
+          ffmpeg -version | head -n 1
+          xmllint --version
+          xmlsec1 --version
+          grk_compress -h > /dev/null
+
+      - name: Cache ClairMeta ECL set
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/clairmeta-data
+          key: clairmeta-${{ runner.os }}-v1-${{ hashFiles('scripts/download_clairmeta_data.sh') }}
+
+      - name: Fetch ClairMeta ECL set
+        env:
+          CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
+        run: ./scripts/download_clairmeta_data.sh
+
       - name: Build dcpdoctor
         working-directory: dcpdoctor/rust
         run: cargo build --release --locked
@@ -225,12 +284,16 @@ jobs:
         run: cargo build --release --locked
 
       - name: Build per-code corpus
+        env:
+          CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: |
           DCPWIZARD="$PWD/dcpwizard/rust/target/release/dcpwizard" \
           ./scripts/build_corpus.sh
 
       - name: Run differential harness
         working-directory: diff
+        env:
+          CLAIRMETA_DATA: ${{ github.workspace }}/clairmeta-data
         run: |
           DCPDOCTOR="$GITHUB_WORKSPACE/dcpdoctor/rust/target/release/dcpdoctor" \
           uv run differential.py

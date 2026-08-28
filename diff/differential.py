@@ -185,6 +185,12 @@ def main():
     if not os.access(DCPDOCTOR, os.X_OK):
         print(f"ERROR: dcpdoctor not executable at {DCPDOCTOR}", file=sys.stderr)
         sys.exit(2)
+    ecl = os.path.join(CLAIRMETA_DATA, "DCP", "ECL-SET")
+    if not os.path.isdir(ecl):
+        print(f"ERROR: ClairMeta ECL set not found at {ecl}. Fetch it with "
+              f"scripts/download_clairmeta_data.sh, or set CLAIRMETA_DATA to an "
+              f"existing clone", file=sys.stderr)
+        sys.exit(2)
     # ClairMeta logs a dependency scan at import time; mute WARNING/below first
     logging.disable(logging.WARNING)
     import clairmeta  # noqa: F401
@@ -246,22 +252,20 @@ def main():
 
     # --- ClairMeta ECL reference packages ---
     refs = manifest.get("reference_packages", {})
-    ecl = os.path.join(CLAIRMETA_DATA, "DCP", "ECL-SET")
-    ref_ran = os.path.isdir(ecl)
-    if ref_ran:
-        for pkg in refs.get("packages", []):
-            path = os.path.join(ecl, pkg["dir"])
-            if not os.path.isdir(path):
-                continue
-            dd = run_dcpdoctor(path, pkg["flags"])
-            cm = run_clairmeta(path)
-            bucket = classify(dd, cm)
-            counts[bucket] += 1
-            records.append({
-                "group": "reference", "id": pkg["id"], "standard": pkg["standard"],
-                "classification": bucket, "dcpdoctor": dd, "clairmeta": cm,
-                "features": pkg.get("features", []),
-            })
+    for pkg in refs.get("packages", []):
+        path = os.path.join(ecl, pkg["dir"])
+        if not os.path.isdir(path):
+            sys.exit(f"ERROR: reference package missing: {path}. "
+                     f"Fetch it with scripts/download_clairmeta_data.sh")
+        dd = run_dcpdoctor(path, pkg["flags"])
+        cm = run_clairmeta(path)
+        bucket = classify(dd, cm)
+        counts[bucket] += 1
+        records.append({
+            "group": "reference", "id": pkg["id"], "standard": pkg["standard"],
+            "classification": bucket, "dcpdoctor": dd, "clairmeta": cm,
+            "features": pkg.get("features", []),
+        })
 
     # --- coverage-gap analysis: ClairMeta ERROR checks with no dcpdoctor equivalent ---
     fired = {}  # check name -> count of packages where it fired as ERROR
@@ -298,7 +302,6 @@ def main():
     summary = {
         "counts": counts,
         "total": sum(counts.values()),
-        "reference_ran": ref_ran,
         "photon_imf": "not_run: the corpus IMP lands as TOOL_ERROR under ClairMeta",
         "fixture_defect_coverage": {
             "total": len(fixtures),

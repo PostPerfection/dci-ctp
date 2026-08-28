@@ -4,7 +4,7 @@ set -euo pipefail
 # Build the per-error-code negative-test corpus.
 # 1. build the real DCPs dcpwizard produces (labeled 5.1 base, 3D, Atmos, mono)
 # 2. clone+mutate/patch them once per error code (corpus_gen.py)
-# 3. record ClairMeta reference-package verdicts if present (scan_reference.py)
+# 3. record ClairMeta reference-package verdicts (scan_reference.py)
 #
 # dcpwizard now labels sound with real ST 429-12 MCA subdescriptors and writes
 # stereoscopic (429-10) and Atmos AuxData (429-18) essence, so the base is 5.1
@@ -252,7 +252,7 @@ fi
 echo "Generating negative fixtures..."
 python3 "$SCRIPT_DIR/corpus_gen.py"
 
-echo "Recording reference-package verdicts (if ClairMeta_Data present)..."
-python3 "$SCRIPT_DIR/scan_reference.py" || true
+echo "Recording reference-package verdicts..."
+python3 "$SCRIPT_DIR/scan_reference.py"
 
 echo "Done."

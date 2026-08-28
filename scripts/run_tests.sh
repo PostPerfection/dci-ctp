@@ -19,7 +19,6 @@ VERBOSE=""
 CATEGORY=""
 PASSED=0
 FAILED=0
-SKIPPED=0
 
 usage() {
     echo "Usage: $0 [OPTIONS]"
@@ -75,16 +74,15 @@ run_test() {
     local expect="$3"  # "pass", "fail", or specific error code
     local extra_flags="${4:-}"
 
-    # isdcf content is downloaded and generated/ needs dcpwizard, so both are optional.
-    # synthetic/ is created by this script, so a missing one means the generator broke.
     if [[ ! -d "$dcp_dir" ]]; then
-        if [[ "$dcp_dir" == *"/tests/synthetic/"* ]]; then
-            echo -e "  ${RED}FAIL${NC} $name (fixture missing: $dcp_dir)"
-            FAILED=$((FAILED + 1))
-        else
-            echo -e "  ${YELLOW}SKIP${NC} $name (content not present)"
-            SKIPPED=$((SKIPPED + 1))
-        fi
+        local fetch_hint
+        case "$dcp_dir" in
+            *"/tests/isdcf/"*)     fetch_hint="scripts/download_isdcf.sh" ;;
+            *"/tests/generated/"*) fetch_hint="scripts/generate.sh" ;;
+            *)                     fetch_hint="scripts/create_synthetic.sh" ;;
+        esac
+        echo -e "  ${RED}FAIL${NC} $name (missing: $dcp_dir, run $fetch_hint)"
+        FAILED=$((FAILED + 1))
         return
     fi
 
@@ -301,22 +299,24 @@ fi
 if [[ -z "$CATEGORY" || "$CATEGORY" == "generated" ]]; then
     echo -e "${CYAN}── Generated DCP Tests ──${NC}"
     
-    if [[ -d "$REPO_DIR/tests/generated" ]]; then
-        for dcp_dir in "$REPO_DIR/tests/generated"/*/; do
-            [[ -d "$dcp_dir" ]] || continue
-            name=$(basename "$dcp_dir")
-            run_test "GEN: $name" "$dcp_dir" "pass"
-        done
-    else
-        echo -e "  ${YELLOW}SKIP${NC} No generated DCPs (run scripts/generate.sh)"
+    generated_count=0
+    for dcp_dir in "$REPO_DIR/tests/generated"/*/; do
+        [[ -d "$dcp_dir" ]] || continue
+        name=$(basename "$dcp_dir")
+        run_test "GEN: $name" "$dcp_dir" "pass"
+        generated_count=$((generated_count + 1))
+    done
+    if [[ $generated_count -eq 0 ]]; then
+        echo -e "  ${RED}FAIL${NC} no generated DCPs in $REPO_DIR/tests/generated (run scripts/generate.sh)"
+        FAILED=$((FAILED + 1))
     fi
     echo ""
 fi
 
 # ====== SUMMARY ======
-TOTAL=$((PASSED + FAILED + SKIPPED))
+TOTAL=$((PASSED + FAILED))
 echo -e "${CYAN}══════════════════════════════${NC}"
-echo -e "Results: ${GREEN}${PASSED} passed${NC}, ${RED}${FAILED} failed${NC}, ${YELLOW}${SKIPPED} skipped${NC} (${TOTAL} total)"
+echo -e "Results: ${GREEN}${PASSED} passed${NC}, ${RED}${FAILED} failed${NC} (${TOTAL} total)"
 
 if [[ $FAILED -gt 0 ]]; then
     exit 1

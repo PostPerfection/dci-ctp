@@ -85,8 +85,10 @@ def parse(out):
 
 def main():
     if not os.path.isdir(ECL):
-        print(f"ClairMeta_Data not found at {ECL}; skipping reference scan", file=sys.stderr)
-        sys.exit(0)
+        print(f"ERROR: ClairMeta ECL set not found at {ECL}. Fetch it with "
+              f"scripts/download_clairmeta_data.sh, or set CLAIRMETA_DATA to an "
+              f"existing clone", file=sys.stderr)
+        sys.exit(1)
 
     mf_path = os.path.join(CORPUS, "manifest.json")
     manifest = json.load(open(mf_path))
@@ -115,7 +117,7 @@ def main():
 
     manifest["reference_packages"] = {
         "root_env": "CLAIRMETA_DATA",
-        "note": "fetched not vendored (~1.5GB); git clone https://github.com/ClairMeta/ClairMeta_Data",
+        "note": "fetched not vendored (~1.5GB); scripts/download_clairmeta_data.sh",
         "packages": pkgs,
     }
     json.dump(manifest, open(mf_path, "w"), indent=2)

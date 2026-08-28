@@ -8,7 +8,7 @@ DCI Compliance Test Plan (CTP) test suite for dcpdoctor. Shell scripts generate 
 - `scripts/generate.sh`: builds a real DCP via dcpwizard (real picture/sound MXFs) for essence checks.
 - `scripts/verify_encryption.sh` + `recover_kdm_key.py` + `tools/decrypt-check/`: independent proof of the encryption + KDM chain (see below).
 - `scripts/run_tests.sh`: runs categories of expect-pass/expect-fail cases; for specific error codes it matches the note's code field, not the whole output.
-- CI runs the full suite in one invocation. The isdcf cases skip because their 2GB content isn't downloaded.
+- CI runs the full suite in one invocation, isdcf cases included: it fetches the 2GB ISDCF content into an `actions/cache` entry keyed on `scripts/download_isdcf.sh`. A missing fixture directory fails the run and names the script that produces it.
 
 ## What each category tests
 
@@ -19,7 +19,7 @@ The suite only exercises rules that `dcpdoctor validate` enforces. Synthetic MXF
 - Presentation (§9): missing required FFMC/LFMC markers under `--strict` (`marker_missing`), marker with no Offset (`marker_invalid`).
 - Integrity: PKL hash mismatch.
 - Picture (§6): valid 2K flat/scope DCPs parse and pass (no essence-level J2K checks on stubs).
-- Audio (§7): 48 kHz PCM in the real generated MXF via `--check-mxf`; ISDCF 5.1/7.1 when downloaded.
+- Audio (§7): 48 kHz PCM in the real generated MXF via `--check-mxf`, ISDCF 5.1/7.1.
 - Security (§8): unencrypted DCP validates; encrypted content detected (`encryption_detected`); encrypted-without-KDM flagged (`kdm_required`); encrypted ISDCF validates structurally.
 
 The markers, cross-reference, and encryption cases use synthetic fixtures built with the intended defect; `create_synthetic.sh` reseals the CPL hash into the PKL afterwards so only the intended code fires, not a stray `pkl_hash_mismatch`.
@@ -58,8 +58,11 @@ skips it: there is no defect for ClairMeta to catch or miss.
 ## Reference packages (ClairMeta)
 
 `scripts/scan_reference.py` records dcpdoctor's observed verdict for each
-ClairMeta_Data ECL package. Fetched, not vendored (~1.5 GB, `CLAIRMETA_DATA`
-env). These become the shared corpus for differential testing against
+ClairMeta_Data ECL package. Fetched, not vendored (~1.5 GB,
+`scripts/download_clairmeta_data.sh` or `CLAIRMETA_DATA` pointing at an existing
+clone), in CI as well, from a cache keyed on that script. Every script that reads
+them fails naming the missing directory when it is absent, so no CI job can
+quietly drop them. These become the shared corpus for differential testing against
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 

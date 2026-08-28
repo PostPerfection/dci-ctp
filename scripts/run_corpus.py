@@ -105,7 +105,7 @@ UNCOVERED_REASONS = {
     "picture_pixel_layout_mismatch": "App 2E IMF picture descriptor rule; the corpus holds DCPs and builds no IMP",
 }
 
-GREEN, RED, YELLOW, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[1;33m", "\033[0;36m", "\033[0m"
+GREEN, RED, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[0;36m", "\033[0m"
 
 
 def run(dirpath, flags):
@@ -147,6 +147,13 @@ def main():
 
     with open(os.path.join(CORPUS, "manifest.json")) as f:
         manifest = json.load(f)
+
+    ecl = os.path.join(CLAIRMETA, "DCP", "ECL-SET")
+    if not os.path.isdir(ecl):
+        print(f"{RED}ERROR: ClairMeta ECL set not found at {ecl}{NC}")
+        print("Fetch it with scripts/download_clairmeta_data.sh, or set CLAIRMETA_DATA "
+              "to an existing clone")
+        sys.exit(1)
 
     passed = failed = 0
     covered = set()
@@ -224,30 +231,31 @@ def main():
                       f"on baseline (vacuous)")
                 failed += 1
 
-    # Reference packages: real third-party DCPs, verified only if fetched.
+    # Reference packages: real third-party DCPs from the ClairMeta ECL set.
     ref_covered = set()
     refs = manifest.get("reference_packages", {}).get("packages", [])
-    ecl = os.path.join(CLAIRMETA, "DCP", "ECL-SET")
-    if refs and os.path.isdir(ecl):
-        print(f"\n{CYAN}== reference packages (ClairMeta) =={NC}")
-        for pkg in refs:
-            d = os.path.join(ecl, pkg["dir"])
-            if not os.path.isdir(d):
-                print(f"  {YELLOW}SKIP{NC} {pkg['id']} (not fetched)")
-                continue
-            out = run(d, pkg["flags"])
-            recorded = set(pkg["observed_codes"])
-            still = {c for c in recorded if code_fires(out, c)}
-            ref_covered |= still
-            if still == recorded:
-                print(f"  {GREEN}PASS{NC} {pkg['id']} ({len(still)} codes reproduce)")
-                passed += 1
-            else:
-                print(f"  {RED}FAIL{NC} {pkg['id']} missing {sorted(recorded - still)}")
-                failed += 1
-    else:
-        print(f"\n{YELLOW}reference packages not fetched (set CLAIRMETA_DATA); "
-              f"skipping{NC}")
+    if not refs:
+        print(f"{RED}ERROR: manifest has no reference_packages; "
+              f"run scripts/scan_reference.py{NC}")
+        sys.exit(1)
+    print(f"\n{CYAN}== reference packages (ClairMeta) =={NC}")
+    for pkg in refs:
+        d = os.path.join(ecl, pkg["dir"])
+        if not os.path.isdir(d):
+            print(f"  {RED}FAIL{NC} {pkg['id']} (missing: {d}, "
+                  f"run scripts/download_clairmeta_data.sh)")
+            failed += 1
+            continue
+        out = run(d, pkg["flags"])
+        recorded = set(pkg["observed_codes"])
+        still = {c for c in recorded if code_fires(out, c)}
+        ref_covered |= still
+        if still == recorded:
+            print(f"  {GREEN}PASS{NC} {pkg['id']} ({len(still)} codes reproduce)")
+            passed += 1
+        else:
+            print(f"  {RED}FAIL{NC} {pkg['id']} missing {sorted(recorded - still)}")
+            failed += 1
 
     all_set = set(ALL_CODES)
     # count only codes that are in ALL_CODES, so the headline and the uncovered

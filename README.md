@@ -27,7 +27,8 @@ scripts/
 ├── generate.sh           # generate DCPs from source material via dcpwizard
 ├── verify_encryption.sh  # prove the encryption + KDM chain by independent decrypt
 ├── recover_kdm_key.py    # RSA-unwrap the content key from a KDM (openssl)
-└── download_isdcf.sh     # fetch the ISDCF reference content (~2GB)
+├── download_isdcf.sh     # fetch the ISDCF reference content (~2GB)
+└── download_clairmeta_data.sh  # fetch the ClairMeta ECL reference set (~1.5GB)
 tools/
 └── decrypt-check/        # tiny rust helper: decrypt an encrypted mxf with a key
 ```
@@ -73,9 +74,13 @@ was found by hand. If a generated package needs correcting, the bug is the
 generator's and gets fixed there.
 
 ```bash
+./scripts/download_clairmeta_data.sh
 DCPWIZARD=../dcpwizard/rust/target/release/dcpwizard ./scripts/build_corpus.sh
 DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.py
 ```
+
+`build_corpus.sh` and `run_corpus.py` both need the ClairMeta ECL set and fail
+naming the missing directory when it is absent.
 
 Coverage against dcpdoctor master: 114 of 124 codes are exercised (101 by isolated
 synthetic + subcommand fixtures, 13 more by the ClairMeta reference packages).
@@ -108,7 +113,10 @@ plus deliberate defects like ECL39's mismatched wavelet levels) and records each
 one's observed verdict into the manifest under `reference_packages`. They run with
 `--check-mxf`, so dcpdoctor reads their essence, and the flag list is recorded on
 each entry so `run_corpus.py` and the differential replay the same command. These are
-fetched, not vendored (~1.5 GB); set `CLAIRMETA_DATA` to the clone path. They are
+fetched, not vendored (~1.5 GB): `scripts/download_clairmeta_data.sh` clones the
+pinned commit, or set `CLAIRMETA_DATA` to an existing clone. CI fetches them the
+same way, into an `actions/cache` entry keyed on that script, so every job that
+reads them runs the reference packages. They are
 the shared corpus a differential-testing pass diffs against ClairMeta's own
 results, and they give real coverage of `certificate_expired` (their signing
 certs expired in 2025) and `j2k_bitrate_exceeded` (real HFR/4K essence).
@@ -137,9 +145,8 @@ CLAIRMETA_ONLY_FAIL 10, TOOL_ERROR 8. dcpdoctor caught 168/168 injected fixture
 defects, ClairMeta 127/168. What sits in each bucket and why is in `DESIGN_TODO.md`
 under "Differential vs ClairMeta", so the numbers live in one place.
 
-The differential runs as an optional, non-blocking CI job (uploads the report as
-an artifact); the ECL packages aren't fetched in CI, so it runs on the baselines
-and fixtures there.
+The differential runs as an optional, non-blocking CI job that uploads the report
+as an artifact, over the same 203 packages: CI fetches the ECL set too.
 
 ## Signature survey vs xmlsec1
 
@@ -222,17 +229,18 @@ ffmpeg, and a dcpwizard build).
 
 - `dcpdoctor` binary (Rust release build)
 - `dcpwizard` binary and `ffmpeg`, for the generated fixtures
-- ISDCF test content (downloaded separately due to size)
+- ISDCF test content and the ClairMeta ECL set (downloaded separately due to size)
 
-CI builds both binaries, creates the synthetic and generated fixtures, and runs the full suite on every push and pull request. The isdcf cases skip in CI since the content is a 2GB download.
+CI builds both binaries, fetches the ISDCF content and the ClairMeta ECL set into `actions/cache` entries, creates the synthetic and generated fixtures, and runs the full suite on every push and pull request. A missing fixture directory fails the job rather than skipping the cases that read it.
 
-## Downloading ISDCF Test Content
+## Downloading the reference content
 
 ```bash
 ./scripts/download_isdcf.sh
+./scripts/download_clairmeta_data.sh
 ```
 
-This downloads the SMPTE Bv2.1 test DCPs (~2GB) from ISDCF.
+The first downloads the SMPTE Bv2.1 test DCPs (~2GB) from ISDCF into `tests/isdcf`. The second clones the ClairMeta ECL set (~1.5GB) at its pinned commit into `../dci-ctp-work/ClairMeta_Data`, or into `CLAIRMETA_DATA` when that is set.
 
 ## License
 
