@@ -66,15 +66,23 @@ quietly drop them. These become the shared corpus for differential testing again
 ClairMeta's own results, and give real coverage of `certificate_expired`
 (expired signing certs) and `j2k_bitrate_exceeded` (real HFR/4K essence).
 
-## Coverage: 123 of 124 codes
+## Coverage: 124 of 124 codes
 
-110 codes have isolated synthetic or subcommand fixtures, and 13 more come from
+111 codes have isolated synthetic or subcommand fixtures, and 13 more come from
 the ClairMeta reference packages, which run with `--check-mxf`. `run_corpus.py`
-prints the live list and a reason per gap, and the one remaining gap is in
-`UNCOVERED_REASONS`.
+prints the live list and a reason per gap from `UNCOVERED_REASONS`, which is
+empty.
 
 Fixture machinery beyond the plain clone+mutate:
 
+- 4K stereoscopic: `build_corpus.sh` builds `valid/dcp_3d_4k`, one second of
+  4096x2160 per eye, the only package here wide enough for
+  `projector_4k_stereo_support`. That check reports a playability risk rather
+  than a defect, so the fixture is the whole package and its baseline is
+  `valid/dcp_3d`, the same build at 2048x1080. The two differ in the one value
+  the check reads, the stored width in the stereoscopic picture MXF's descriptor.
+  ST 429-2 Table 1 defines no 4K stereoscopic format, so this is also the one
+  baseline ClairMeta fails, on `check_picture_cpl_framerate`.
 - Timed text: `add_timed_text` attaches a MainSubtitle or ClosedCaption track to
   the first reel and registers the document in the ASSETMAP. `dcst()` builds the
   SMPTE DCST document with one `<Text>` element per displayed line, which is how

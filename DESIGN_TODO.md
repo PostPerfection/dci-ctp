@@ -3,20 +3,6 @@
 Re-run `run_corpus.py` and `diff/differential.py` before quoting any number
 here. Four separate counts in this repo's docs have been wrong when checked.
 
-## Coverage gaps
-
-`ALL_CODES` is the full `Code::as_str` enum (124) and `UNCOVERED_REASONS` in
-`run_corpus.py` carries a reason for every code without a fixture. One is left.
-
-`projector_4k_stereo_support` reads a `<Resolution>` element from the CPL text.
-No CPL schema dcpdoctor ships defines one: not ST 429-7, not the 429-10 stereo
-schema, which types `MainStereoscopicPicture` as a plain
-`PictureTrackFileAssetType`, not the Interop proto schema. No ECL package carries
-one and no mastering tool writes one, so the check cannot fire on a conformant
-package and a fixture would have to invent the element. The fix is dcpdoctor
-reading the width from the picture descriptor the way its other picture checks
-do, which is a dcpdoctor change, not a corpus one.
-
 ## Standing decisions
 
 A third mastering tool was considered and declined. Every candidate that still

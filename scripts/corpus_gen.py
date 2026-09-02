@@ -33,6 +33,7 @@ REPO = os.path.dirname(CORPUS)
 BASE = os.path.join(CORPUS, "valid", "dcp_ov")
 MONO = os.path.join(CORPUS, ".mono_src")  # unlabeled-sound source (built by build_corpus.sh)
 THREE_D = os.path.join(CORPUS, "valid", "dcp_3d")
+THREE_D_FOUR_K = os.path.join(CORPUS, "valid", "dcp_3d_4k")
 ATMOS = os.path.join(CORPUS, "valid", "dcp_atmos")
 ENC_SRC = os.path.join(CORPUS, ".enc_src")  # encrypted (unsigned) DCP, built by build_corpus.sh
 BITRATE_SRC = os.path.join(CORPUS, ".bitrate_src")  # 3D at full 2K bandwidth, over the DCI peak
@@ -2192,6 +2193,14 @@ def main():
         "notes": "stereoscopic 3D (ST 429-10) DCP; FrameRate = 2x EditRate, "
                  "Jpeg2000Stereo essence; validates clean",
     })
+    if not os.path.isdir(THREE_D_FOUR_K):
+        sys.exit(f"ERROR: {THREE_D_FOUR_K} missing, which scripts/build_corpus.sh "
+                 f"did not build")
+    manifest["baselines"].append({
+        "dir": "valid/dcp_3d_4k", "package_type": "dcp", "is_valid_baseline": True,
+        "flags": ["--strict", "--check-mxf"], "expected_codes": [],
+        "notes": "4096x2160 stereoscopic 3D DCP, one second long; validates clean",
+    })
     manifest["baselines"].append({
         "dir": "valid/dcp_atmos", "package_type": "dcp", "is_valid_baseline": True,
         "flags": ["--strict", "--check-mxf"], "expected_codes": [],
@@ -2281,6 +2290,24 @@ def main():
                  "deep-J2K scan; the code is INFO with no pass/fail, so the "
                  "assertion is that --deep-j2k turns the summary on and no flags "
                  "leaves it off",
+    })
+
+    # projector_4k_stereo_support reports a playability risk rather than a defect,
+    # so the fixture is the whole 4K 3D build and its baseline is the 2K 3D one.
+    # The two differ only in the stored width the check reads off the
+    # stereoscopic picture MXF.
+    manifest["fixtures"].append({
+        "dir": "valid/dcp_3d_4k",
+        "package_type": "dcp",
+        "is_valid_baseline": False,
+        "expected_codes": ["projector_4k_stereo_support"],
+        "also_emits": [],
+        "flags": ["--check-mxf"],
+        "baseline": "valid/dcp_3d",
+        "baseline_flags": ["--check-mxf"],
+        "notes": "4K stereoscopic DCP; the check reads 4096 from the picture "
+                 "descriptor of the MainStereoscopicPicture track file, where the "
+                 "2K 3D baseline gives 2048",
     })
 
     # picture_bitrate_measured is INFO and needs no defect: any IMP picture track

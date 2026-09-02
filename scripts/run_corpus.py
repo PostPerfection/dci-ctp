@@ -87,12 +87,8 @@ ALL_CODES = [
 ]
 
 # codes not covered by an isolated `dcpdoctor validate` fixture, with why (honest
-# gaps).
-UNCOVERED_REASONS = {
-    "projector_4k_stereo_support": "reads a <Resolution> element no CPL schema "
-                                   "defines, so no mastering tool writes one and "
-                                   "the check cannot fire on a conformant package",
-}
+# gaps). Empty: every code has a fixture.
+UNCOVERED_REASONS = {}
 
 GREEN, RED, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[0;36m", "\033[0m"
 

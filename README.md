@@ -53,13 +53,14 @@ Not covered by this table: J2K profile/bitrate, UUID-format, VOLINDEX/MXF-extens
 ## Per-error-code negative corpus
 
 `scripts/build_corpus.sh` builds the real DCPs dcpwizard produces (labeled 5.1
-base, stereoscopic 3D, Atmos AuxData, mono, and an encrypted unsigned build) plus
-non-DCI J2K essence and an IMF IMP, then `scripts/corpus_gen.py` clones and mutates
-them once per error code, resealing the CPL and PKL hashes so only the intended
-code fires. Two baselines are synthesised rather than built: `valid/dcp_signed`'s
-certificate twin `valid/dcp_certificate_chain`, and `valid/dcp_all_markers`, the
-base package carrying every marker `--strict` names so a fixture that drops one
-has something to be measured against.
+base, stereoscopic 3D at 2K and at 4K, Atmos AuxData, mono, and an encrypted
+unsigned build) plus non-DCI J2K essence and an IMF IMP, then
+`scripts/corpus_gen.py` clones and mutates them once per error code, resealing
+the CPL and PKL hashes so only the intended code fires. Two baselines are
+synthesised rather than built: `valid/dcp_signed`'s certificate twin
+`valid/dcp_certificate_chain`, and `valid/dcp_all_markers`, the base package
+carrying every marker `--strict` names so a fixture that drops one has something
+to be measured against.
 `scripts/run_corpus.py` reads `corpus/manifest.json` and asserts each fixture's code
 fires AND is absent on the valid baseline (so a test can't pass when the check is
 unwired), and that the fixture emits nothing beyond its expected codes, its
@@ -83,18 +84,16 @@ DCPDOCTOR=../dcpdoctor/rust/target/release/dcpdoctor python3 scripts/run_corpus.
 `build_corpus.sh` and `run_corpus.py` both need the ClairMeta ECL set and fail
 naming the missing directory when it is absent.
 
-Coverage against dcpdoctor master: 123 of 124 codes are exercised (110 by isolated
+Coverage against dcpdoctor master: 124 of 124 codes are exercised (111 by isolated
 synthetic + subcommand fixtures, 13 more by the ClairMeta reference packages).
 `ALL_CODES` in `run_corpus.py` is the full `Code::as_str` enum, so the headline
-count and the uncovered list share one denominator (123 + 1 = 124). The one
-uncovered code carries its reason in `UNCOVERED_REASONS`, which `run_corpus.py`
-prints: `projector_4k_stereo_support` reads a `<Resolution>` element that no CPL
-schema defines, so no mastering tool writes one and no conformant package can
-fire it. Most fixtures run through `dcpdoctor validate`; seven codes reachable
-only through other subcommands (kdm, auto-qc) use a `subcommand_fixtures`
-manifest section. A code that reports a measurement rather
-than a verdict is covered by the flag that gates it: the fixture and its baseline
-are the same clean package with the gate on and off.
+count and the uncovered list share one denominator (124 + 0 = 124), and
+`UNCOVERED_REASONS`, which carries a reason per gap, is empty. Most fixtures run
+through `dcpdoctor validate`; seven codes reachable only through other
+subcommands (kdm, auto-qc) use a `subcommand_fixtures` manifest section. A code
+that reports a measurement rather than a verdict is covered by the flag that
+gates it: the fixture and its baseline are the same clean package with the gate
+on and off.
 
 `build_corpus.sh` needs every tool its fixtures use and fails naming the one it
 could not find: dcpwizard, imfwizard, grok's `grk_compress` on PATH, DCP-o-matic's
@@ -142,9 +141,9 @@ differential. `sox` gates the audio checks the same way. Photon is never invoked
 the IMF IMPs in the corpus land as TOOL_ERROR under ClairMeta, which is a DCP
 validator.
 
-Full-corpus result with `asdcp-unwrap` and `asdcp-info` on PATH (205 packages:
-7 baselines, 170 negative fixtures, 28 ECL references): BOTH_PASS 36,
-BOTH_FAIL 120, DCPDOCTOR_ONLY_FAIL 30, CLAIRMETA_ONLY_FAIL 14, TOOL_ERROR 5.
+Full-corpus result with `asdcp-unwrap` and `asdcp-info` on PATH (206 packages:
+8 baselines, 170 negative fixtures, 28 ECL references): BOTH_PASS 36,
+BOTH_FAIL 120, DCPDOCTOR_ONLY_FAIL 30, CLAIRMETA_ONLY_FAIL 15, TOOL_ERROR 5.
 dcpdoctor caught 170/170 injected fixture defects, ClairMeta 133/170. The
 manifest declares more fixtures than that: the flag-gated and env-gated ones
 inject no defect, and an IMP lands as TOOL_ERROR under ClairMeta whatever it
@@ -159,7 +158,7 @@ the IMF IMP, whose CPL carries a SequenceList rather than the ReelList a DCP
 validator looks for.
 
 The differential runs as an optional, non-blocking CI job that uploads the report
-as an artifact, over the same 205 packages: CI fetches the ECL set too.
+as an artifact, over the same 206 packages: CI fetches the ECL set too.
 
 ## Signature survey vs xmlsec1
 

@@ -30,6 +30,9 @@ RIGHT="$SRCDIR/right.mp4"
 WAV51="$SRCDIR/audio51.wav"
 WAVMONO="$SRCDIR/mono.wav"
 ATMOS="$SRCDIR/atmos_frames"
+LEFT_4K="$SRCDIR/left4k.mp4"
+RIGHT_4K="$SRCDIR/right4k.mp4"
+WAV51_ONE_SECOND="$SRCDIR/audio51_1s.wav"
 
 if [[ ! -f "$LEFT" ]]; then
     echo "Creating source media..."
@@ -42,6 +45,19 @@ if [[ ! -f "$LEFT" ]]; then
            -af "pan=5.1|c0=c0|c1=c0|c2=c0|c3=c0|c4=c0|c5=c0" -c:a pcm_s24le "$WAV51" 2>/dev/null
     ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=2" \
            -c:a pcm_s24le "$WAVMONO" 2>/dev/null
+fi
+
+# 4K stereoscopic source. One second is the ST 429-7 minimum reel length, and
+# four times the pixels per eye makes this the most expensive encode here.
+if [[ ! -f "$LEFT_4K" ]]; then
+    echo "Creating 4K source media..."
+    ffmpeg -y -f lavfi -i testsrc2=size=4096x2160:rate=24:duration=1 \
+           -c:v libx264 -pix_fmt yuv420p "$LEFT_4K" 2>/dev/null
+    ffmpeg -y -f lavfi -i "testsrc2=size=4096x2160:rate=24:duration=1,negate" \
+           -c:v libx264 -pix_fmt yuv420p "$RIGHT_4K" 2>/dev/null
+    ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
+           -af "pan=5.1|c0=c0|c1=c0|c2=c0|c3=c0|c4=c0|c5=c0" \
+           -c:a pcm_s24le "$WAV51_ONE_SECOND" 2>/dev/null
 fi
 
 # dcpwizard wraps one aux frame per input file and requires the count to
@@ -73,6 +89,12 @@ build "$VALID/dcp_3d" \
     --title "CTP3D_TST_F-3D_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
     --content-type TST --video "$LEFT" --audio "$WAV51" --right-eye "$RIGHT" \
     --video-bit-rate 100
+# 4096-wide stereoscopic 3D: the only package whose picture is wide enough for
+# projector_4k_stereo_support, which reads the stored width off this MXF
+build "$VALID/dcp_3d_4k" \
+    --title "CTP3D4K_TST_F-3D_EN_US_51_4K_PPF_20260721_PPF_SMPTE_OV" \
+    --content-type TST --video "$LEFT_4K" --audio "$WAV51_ONE_SECOND" \
+    --right-eye "$RIGHT_4K" --fourk --video-bit-rate 100
 # the same 3D package at the full 2K bandwidth, which measures over the DCI
 # peak limit: the j2k_bitrate_exceeded fixture source
 build "$CORPUS/.bitrate_src" \
