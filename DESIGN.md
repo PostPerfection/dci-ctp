@@ -193,12 +193,11 @@ reference package lands in DCPDOCTOR_ONLY_FAIL on a signature code.
 ### dcpdoctor coverage gaps ClairMeta exposed
 
 None left. Every ClairMeta ERROR check that fires anywhere in the corpus has a
-dcpdoctor code firing on the same packages. The five the report listed last were
-`check_am_name`, `check_assets_am_size`, `check_dcp_signed`,
-`check_subtitle_cpl_entry_point` and `check_subtitle_cpl_font_glyph`, against
-`assetmap_invalid_name`, `assetmap_size_mismatch`, `dcp_not_signed`,
-`subtitle_first_event_early` and `subtitle_glyph_missing`: the check-to-code table
-in `differential.py` had gone stale as dcpdoctor gained those codes.
+dcpdoctor code firing on the same packages. The two the report listed last were
+`check_cpl_reels_timed_text_coherence` and `check_subtitle_cpl_font_size`, against
+`subtitle_missing_from_reel` and `subtitle_font_too_large`: the check-to-code
+table in `differential.py` had gone stale as dcpdoctor gained those codes, the
+same way it had for five subtitle, assetmap and signing checks before.
 `diff/report.md` regenerates the list.
 
 The gaps this section used to list are closed, and the list had gone stale in the
