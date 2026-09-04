@@ -43,11 +43,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.4.0
+          key: grok-${{ runner.os }}-v20.4.3
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.4.0
+          GROK_TAG: v20.4.3
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
@@ -190,11 +190,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.4.0
+          key: grok-${{ runner.os }}-v20.4.3
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.4.0
+          GROK_TAG: v20.4.3
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
@@ -269,11 +269,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.4.0
+          key: grok-${{ runner.os }}-v20.4.3
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.4.0
+          GROK_TAG: v20.4.3
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
