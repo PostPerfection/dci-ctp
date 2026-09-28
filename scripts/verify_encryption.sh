@@ -37,13 +37,23 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 echo "Work dir: $WORK"
 
-# 1. signer + recipient certs. Only the RSA-2048 key shape matters here; the
-# recipient private key is ours, which is what makes independent recovery possible.
-echo "[1/6] Generating signer + recipient RSA-2048 certs..."
-openssl req -x509 -newkey rsa:2048 -keyout "$WORK/signer.key" -out "$WORK/signer.pem" \
-    -days 3650 -nodes -subj "/O=dci-ctp/OU=verify/CN=CTP Signer" 2>/dev/null
-openssl req -x509 -newkey rsa:2048 -keyout "$WORK/recipient.key" -out "$WORK/recipient.pem" \
-    -days 3650 -nodes -subj "/O=dci-ctp/OU=verify/CN=CTP Recipient" 2>/dev/null
+# dcpwizard logs to stdout, shown only when the command fails
+quietly() {
+    "$@" >"$WORK/command.log" 2>&1 || { cat "$WORK/command.log" >&2; return 1; }
+}
+
+# 1. st 430-2 signer chain and a recipient under its root, all from dcpwizard
+echo "[1/6] Generating signer chain + recipient RSA-2048 certs..."
+CHAIN="$WORK/chain"
+quietly "$DCPWIZARD" certificate chain --organization dci-ctp --output "$CHAIN"
+SIGNER=(--signer-cert "$CHAIN/signer.pem" --signer-key "$CHAIN/signer.key"
+        --signer-chain "$CHAIN/intermediate.pem" --signer-chain "$CHAIN/root.pem")
+recipient_cert() {
+    quietly "$DCPWIZARD" certificate generate --cert-type leaf --cn "$1" --organization dci-ctp \
+        --issuer-cert "$CHAIN/root.pem" --issuer-key "$CHAIN/root.key" \
+        --output-cert "$WORK/$2.pem" --output-key "$WORK/$2.key"
+}
+recipient_cert "CTP Recipient" recipient
 
 # 2. small source clip, then an encrypted DCP with a sidecar keys.json
 echo "[2/6] Encoding source clip + encrypted DCP..."
@@ -51,27 +61,26 @@ SRC="$WORK/src.mp4"
 ffmpeg -y -f lavfi -i testsrc2=size=2048x1080:rate=24:duration=1 \
        -f lavfi -i sine=frequency=1000:sample_rate=48000:duration=1 \
        -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$SRC" 2>/dev/null
-"$DCPWIZARD" create \
+quietly "$DCPWIZARD" create \
     --title "CTPEnc_TST_F_EN_US_51_2K_PPF_20260720_PPF_SMPTE_OV" \
     --content-type TST --video "$SRC" \
     --encrypt --key-out "$WORK/keys.json" \
-    --output "$WORK/dcp" >/dev/null
+    "${SIGNER[@]}" \
+    --output "$WORK/dcp"
 
 CPL_ID="$(python3 -c "import json;print(json.load(open('$WORK/keys.json'))['cpl_id'])")"
 echo "  CPL id: $CPL_ID"
 
-# 3. KDM binding the DCP's content keys to the recipient. dcpwizard rejects a
-# signer whose notBefore is not earlier than the day the window opens, and
-# openssl before 3.5 cannot backdate a cert, so the window opens tomorrow.
+# 3. KDM for the recipient, opening tomorrow as dcpwizard refuses the signer's notBefore day
 KDM_FROM="$(date -u -d tomorrow +%Y-%m-%dT%H:%M:%S+00:00)"
 KDM_TO="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%S+00:00)"
 echo "[3/6] Generating KDM for the recipient..."
-"$DCPWIZARD" kdm \
+quietly "$DCPWIZARD" kdm \
     --cpl-id "$CPL_ID" --content-title "CTP Encryption Verify" \
     --cert "$WORK/recipient.pem" \
-    --signer-cert "$WORK/signer.pem" --signer-key "$WORK/signer.key" \
+    "${SIGNER[@]}" \
     --valid-from "$KDM_FROM" --valid-to "$KDM_TO" \
-    --keys "$WORK/keys.json" --output "$WORK/kdm.xml" >/dev/null
+    --keys "$WORK/keys.json" --output "$WORK/kdm.xml"
 
 # 4. independently recover the content keys from the KDM (openssl RSA-OAEP)
 echo "[4/6] Recovering content keys from KDM with recipient private key..."
@@ -88,14 +97,13 @@ PIC_MXF="$(ls "$WORK/dcp"/picture_*.mxf)"
 # 6. negative control: a KDM built for a DIFFERENT recipient must NOT yield a
 # key our recipient can recover (RSA unwrap fails), proving the binding is real.
 echo "[6/6] Negative control: KDM for a different recipient must not unwrap..."
-openssl req -x509 -newkey rsa:2048 -keyout "$WORK/other.key" -out "$WORK/other.pem" \
-    -days 3650 -nodes -subj "/O=dci-ctp/OU=verify/CN=Other Recipient" 2>/dev/null
-"$DCPWIZARD" kdm \
+recipient_cert "Other Recipient" other
+quietly "$DCPWIZARD" kdm \
     --cpl-id "$CPL_ID" --content-title "CTP Encryption Verify" \
     --cert "$WORK/other.pem" \
-    --signer-cert "$WORK/signer.pem" --signer-key "$WORK/signer.key" \
+    "${SIGNER[@]}" \
     --valid-from "$KDM_FROM" --valid-to "$KDM_TO" \
-    --keys "$WORK/keys.json" --output "$WORK/kdm_other.xml" >/dev/null
+    --keys "$WORK/keys.json" --output "$WORK/kdm_other.xml"
 if python3 "$SCRIPT_DIR/recover_kdm_key.py" "$WORK/kdm_other.xml" "$WORK/recipient.key" "$WORK/keys.json" >/dev/null 2>&1; then
     echo "ERROR: recovered a key from a KDM addressed to a different recipient" >&2
     exit 1
