@@ -18,3 +18,4 @@ __pycache__/
 
 # decrypt-check helper build output (tools/decrypt-check/)
 tools/decrypt-check/target/
+clairmeta-data/

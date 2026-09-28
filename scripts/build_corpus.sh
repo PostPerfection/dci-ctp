@@ -69,10 +69,15 @@ if [[ ! -d "$ATMOS" ]]; then
     done
 fi
 
+# dcpwizard logs to stdout, shown only when the command fails
+quietly() {
+    "$@" >"$SRCDIR/command.log" 2>&1 || { cat "$SRCDIR/command.log" >&2; return 1; }
+}
+
 build() {
     local out="$1"; shift
     rm -rf "$out"
-    "$DCPWIZARD" create "$@" --output "$out" >/dev/null 2>&1
+    quietly "$DCPWIZARD" create "$@" --output "$out"
     echo "  built $out"
 }
 
@@ -110,14 +115,12 @@ build "$CORPUS/.mono_src" \
     --title "CTPMono_TST_F_EN_US_10_2K_PPF_20260721_PPF_SMPTE_OV" \
     --content-type TST --video "$LEFT" --audio "$WAVMONO"
 
-# encrypted (unsigned) DCP: dcpwizard emits encrypted packages with a KeyId but
-# no CPL/PKL signature, so this is the real dcp_not_signed fixture source.
 CERTS="$SRCDIR/certs"
 ENCKEYS="$SRCDIR/enc_keys.json"
 # regenerated every run: a kept chain survives a postkit certificate fix, and the
 # corpus then reports defects that are already fixed
 rm -rf "$CERTS"
-"$DCPWIZARD" certificate chain --organization CTP --output "$CERTS" >/dev/null 2>&1
+quietly "$DCPWIZARD" certificate chain --organization CTP --output "$CERTS"
 # the only package here whose CPL and PKL carry a real ds:Signature. without it
 # unencrypted_dcp_not_signed has no baseline that does not already fire it, so
 # no fixture for that code can be anything but vacuous.
@@ -127,19 +130,13 @@ build "$VALID/dcp_signed" \
     --signer-cert "$CERTS/signer.pem" --signer-key "$CERTS/signer.key" \
     --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem"
 
+# encrypted and signed by dcpwizard: dcp_not_signed strips its signatures, the KDMs below unlock it
+ENCRYPTED_SIGNED="$VALID/dcp_encrypted_signed"
 rm -f "$ENCKEYS"
-build "$CORPUS/.enc_src" \
-    --title "CTPEnc_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
-    --content-type TST --video "$LEFT" --audio "$WAV51" \
-    --encrypt --key-out "$ENCKEYS"
-
-# encrypted and signed for real: the dcp_not_signed fixture's baseline. A real
-# dcpwizard build, not a synthetic signature, so its signature verifies.
-rm -f "$SRCDIR/enc_signed_keys.json"
-build "$VALID/dcp_encrypted_signed" \
+build "$ENCRYPTED_SIGNED" \
     --title "CTPEncSig_TST_F_EN_US_51_2K_PPF_20260721_PPF_SMPTE_OV" \
     --content-type TST --video "$LEFT" --audio "$WAV51" \
-    --encrypt --key-out "$SRCDIR/enc_signed_keys.json" \
+    --encrypt --key-out "$ENCKEYS" \
     --signer-cert "$CERTS/signer.pem" --signer-key "$CERTS/signer.key" \
     --signer-chain "$CERTS/intermediate.pem" --signer-chain "$CERTS/root.pem"
 
@@ -155,13 +152,13 @@ rm -rf "$SUBCMD"; mkdir -p "$SUBCMD"
 KDM_CERTS="$SRCDIR/kdm_certs"
 rm -rf "$KDM_CERTS"
 python3 "$SCRIPT_DIR/corpus_gen.py" --write-kdm-chain "$KDM_CERTS"
-ENC_CPLID=$(grep -oE 'urn:uuid:[0-9a-fA-F-]+' "$CORPUS/.enc_src"/CPL_*.xml | head -1)
+ENC_CPLID=$(grep -oE 'urn:uuid:[0-9a-fA-F-]+' "$ENCRYPTED_SIGNED"/CPL_*.xml | head -1)
 gen_kdm() {
-    "$DCPWIZARD" kdm --cpl-id "$ENC_CPLID" --content-title "CTPEnc" \
+    quietly "$DCPWIZARD" kdm --cpl-id "$ENC_CPLID" --content-title "CTPEnc" \
         --cert "$KDM_CERTS/signer.pem" --signer-cert "$KDM_CERTS/signer.pem" \
         --signer-key "$KDM_CERTS/signer.key" \
         --signer-chain "$KDM_CERTS/intermediate.pem" --signer-chain "$KDM_CERTS/root.pem" \
-        --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3" >/dev/null
+        --keys "$ENCKEYS" --valid-from "$1" --valid-to "$2" -o "$3"
 }
 gen_kdm "2020-06-01T00:00:00+00:00" "2021-06-01T00:00:00+00:00" "$SUBCMD/kdm_expired.xml"
 gen_kdm "2035-01-01T00:00:00+00:00" "2039-01-01T00:00:00+00:00" "$SUBCMD/kdm_future.xml"
@@ -173,7 +170,7 @@ ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
        -af "volume=-90dB" -c:a pcm_s24le "$SUBCMD/silent.wav" 2>/dev/null
 ffmpeg -y -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=1" \
        -af "volume=-12dB" -c:a pcm_s24le "$SUBCMD/normal.wav" 2>/dev/null
-echo "  built encrypted source, KDMs and audio fixtures"
+echo "  built KDMs and audio fixtures"
 
 # non-DCI J2K essence + IMF IMP, for the picture/j2k codes. grok's grk_compress
 # and (for the wrap bypass) the vendored asdcplib asdcp-wrap are both needed.

@@ -35,7 +35,6 @@ MONO = os.path.join(CORPUS, ".mono_src")  # unlabeled-sound source (built by bui
 THREE_D = os.path.join(CORPUS, "valid", "dcp_3d")
 THREE_D_FOUR_K = os.path.join(CORPUS, "valid", "dcp_3d_4k")
 ATMOS = os.path.join(CORPUS, "valid", "dcp_atmos")
-ENC_SRC = os.path.join(CORPUS, ".enc_src")  # encrypted (unsigned) DCP, built by build_corpus.sh
 BITRATE_SRC = os.path.join(CORPUS, ".bitrate_src")  # 3D at full 2K bandwidth, over the DCI peak
 IMF_SRC = os.path.join(CORPUS, "valid", "imf_ov")  # IMF IMP, built by build_corpus.sh
 
@@ -60,6 +59,8 @@ ALL_MARKERS = os.path.join(CORPUS, *ALL_MARKERS_BASELINE.split("/"))
 DOM_BASE = os.path.join(CORPUS, "valid", "dcp_dom_ov")
 DOM_INTEROP = os.path.join(CORPUS, "valid", "dcp_dom_interop")
 SIGNED_BASE = os.path.join(CORPUS, "valid", "dcp_signed")
+ENCRYPTED_SIGNED_BASELINE = "valid/dcp_encrypted_signed"
+ENCRYPTED_SIGNED_BASE = os.path.join(CORPUS, *ENCRYPTED_SIGNED_BASELINE.split("/"))
 
 def sha1_b64(path):
     h = hashlib.sha1()
@@ -1811,13 +1812,17 @@ def _(d):
 
 
 @fixture("dcp_not_signed", ["dcp_not_signed"], [],
-         "Real encrypted DCP built by dcpwizard: it carries KeyIds but no "
-         "CPL/PKL ds:Signature, so check_dcp_signed fires. The baseline is the "
-         "same content built encrypted and signed by dcpwizard.",
-         src=ENC_SRC, reseal_after=False, also=["encryption_detected", "kdm_required"],
-         baseline="valid/dcp_encrypted_signed")
+         "The encrypted and signed baseline with both signatures removed: it "
+         "keeps its KeyIds but loses the CPL/PKL ds:Signature, so "
+         "check_dcp_signed fires.",
+         src=ENCRYPTED_SIGNED_BASE, reseal_after=False,
+         also=["encryption_detected", "kdm_required"],
+         baseline=ENCRYPTED_SIGNED_BASELINE)
 def _(d):
-    pass  # dcpwizard's encrypted package is already unsigned
+    # both, then reseal, for the reason unencrypted_dcp_not_signed gives
+    for path in (cpl_path(d), pkl_path(d)):
+        write(path, strip_signature(read(path)))
+    reseal(d)
 
 
 @fixture("picture_invalid_resolution",
