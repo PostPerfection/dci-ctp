@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake xmlsec1 unzip
+          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev libasound2-dev ffmpeg cmake xmlsec1 unzip
 
       # build grok (jpeg 2000 codec) from source once per tag, cached.
       # provides libgrokj2k on the pkg-config + loader paths and grk_compress on PATH.
@@ -43,11 +43,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.4.3
+          key: grok-${{ runner.os }}-v20.4.12
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.4.3
+          GROK_TAG: v20.4.12
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
@@ -182,7 +182,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake xmlsec1
+          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev libasound2-dev ffmpeg cmake xmlsec1
 
       # build grok (jpeg 2000 codec) from source once per tag, cached.
       # provides libgrokj2k on the pkg-config + loader paths and grk_compress on PATH.
@@ -190,11 +190,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.4.3
+          key: grok-${{ runner.os }}-v20.4.12
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.4.3
+          GROK_TAG: v20.4.12
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
@@ -260,7 +260,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev ffmpeg cmake xmlsec1
+          sudo apt-get install -y pkg-config libxml2-dev libxml2-utils libssl-dev libxerces-c-dev libasound2-dev ffmpeg cmake xmlsec1
           curl -LsSf https://astral.sh/uv/install.sh | sh
 
       # build grok (jpeg 2000 codec) from source once per tag, cached.
@@ -269,11 +269,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/grok-install
-          key: grok-${{ runner.os }}-v20.4.3
+          key: grok-${{ runner.os }}-v20.4.12
 
       - name: Setup grok
         env:
-          GROK_TAG: v20.4.3
+          GROK_TAG: v20.4.12
         run: |
           prefix="$GITHUB_WORKSPACE/grok-install"
           if [ ! -x "$prefix/bin/grk_compress" ]; then
