@@ -113,6 +113,20 @@ run_test() {
                 FAILED=$((FAILED + 1))
             fi
             ;;
+        errors-only:*)
+            local only_code="${expect#errors-only:}"
+            local error_lines unexpected_lines
+            error_lines=$(echo "$output" | grep '^\[ERROR\]' || true)
+            unexpected_lines=$(echo "$error_lines" | grep -v "\] $only_code - " || true)
+            if echo "$result_line" | grep -q "FAIL" && [[ -n "$error_lines" && -z "$unexpected_lines" ]]; then
+                echo -e "  ${GREEN}PASS${NC} $name (only expected error: $only_code)"
+                PASSED=$((PASSED + 1))
+            else
+                echo -e "  ${RED}FAIL${NC} $name (expected only '$only_code' errors, got: $result_line, first unexpected: $(echo "$unexpected_lines" | head -n 1))"
+                [[ -n "$VERBOSE" ]] && echo "$output" | sed 's/^/    /' || true
+                FAILED=$((FAILED + 1))
+            fi
+            ;;
         *)
             # Expect specific error code. Match the note's code field ("[SEVERITY] code - ..."),
             # not the whole output, so an input path that echoes the code can't pass the test.
@@ -140,13 +154,14 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "packaging" ]]; then
         "$REPO_DIR/tests/synthetic/invalid/empty_dcp" \
         "fail"
     
+    # synthetic mxfs are zero stubs, so essence inspection is off for them
     run_test "CTP-PKG: valid SMPTE packaging" \
         "$REPO_DIR/tests/synthetic/valid/minimal_smpte" \
-        "pass"
+        "pass" "--no-mxf --no-deep-j2k"
     
     run_test "CTP-PKG: valid Interop packaging" \
         "$REPO_DIR/tests/synthetic/valid/minimal_interop" \
-        "pass"
+        "pass" "--no-mxf --no-deep-j2k"
     echo ""
 fi
 
@@ -209,13 +224,14 @@ fi
 if [[ -z "$CATEGORY" || "$CATEGORY" == "picture" ]]; then
     echo -e "${CYAN}── Picture Tests (CTP §6) ──${NC}"
     
+    # synthetic mxfs are zero stubs, so essence inspection is off for them
     run_test "CTP-PIC: valid 2K scope resolution" \
         "$REPO_DIR/tests/synthetic/valid/scope_2k" \
-        "pass"
+        "pass" "--no-mxf --no-deep-j2k"
     
     run_test "CTP-PIC: valid 2K flat resolution" \
         "$REPO_DIR/tests/synthetic/valid/flat_2k" \
-        "pass"
+        "pass" "--no-mxf --no-deep-j2k"
     echo ""
 fi
 
@@ -238,17 +254,18 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "audio" ]]; then
         "$REPO_DIR/tests/generated/short_2k_24fps" \
         "pass" "--check-mxf"
     
+    # the isdcf signer chain expired in 2023 and dcpdoctor reports it since 1.3.0
     # ISDCF 5.1 has proper audio
     ISDCF_51="$REPO_DIR/tests/isdcf/SMPTE_TST-1-Bv21_51-71_20170110_SMPTE_Folders/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_51-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV"
     run_test "CTP-AUD: ISDCF 5.1 audio valid" \
         "$ISDCF_51" \
-        "pass" "--check-mxf"
+        "errors-only:certificate_expired" "--check-mxf"
     
     # ISDCF 7.1 has proper audio
     ISDCF_71="$REPO_DIR/tests/isdcf/SMPTE_TST-1-Bv21_51-71_20170110_SMPTE_Folders/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_71-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV"
     run_test "CTP-AUD: ISDCF 7.1 audio valid" \
         "$ISDCF_71" \
-        "pass" "--check-mxf"
+        "errors-only:certificate_expired" "--check-mxf"
     echo ""
 fi
 
@@ -275,7 +292,7 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "security" ]]; then
     ISDCF_51="$REPO_DIR/tests/isdcf/SMPTE_TST-1-Bv21_51-71_20170110_SMPTE_Folders/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_51-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV"
     run_test "CTP-SEC: encrypted ISDCF DCP validates" \
         "$ISDCF_51" \
-        "pass" "--check-mxf"
+        "errors-only:certificate_expired" "--check-mxf"
     echo ""
 fi
 
@@ -287,11 +304,11 @@ if [[ -z "$CATEGORY" || "$CATEGORY" == "isdcf" ]]; then
     
     run_test "ISDCF Bv2.1 5.1 surround" \
         "$ISDCF_BASE/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_51-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV" \
-        "pass" "--check-mxf"
+        "errors-only:certificate_expired" "--check-mxf"
     
     run_test "ISDCF Bv2.1 7.1 surround" \
         "$ISDCF_BASE/SMPTE_TST-1-Bv21_S_EN-EN-CCAP_US_71-HI-VI_2K_ISDCF_20170110_DTB_SMPTE_OV" \
-        "pass" "--check-mxf"
+        "errors-only:certificate_expired" "--check-mxf"
     echo ""
 fi
 

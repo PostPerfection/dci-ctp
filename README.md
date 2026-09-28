@@ -36,7 +36,7 @@ tools/
 
 ## What the suite actually checks
 
-The suite drives `dcpdoctor validate`, so it covers exactly the rules that command enforces. Synthetic MXFs are zero-filled stubs, so picture/audio essence checks only run against the real generated and ISDCF DCPs.
+The suite drives `dcpdoctor validate`, so it covers exactly the rules that command enforces. Synthetic MXFs are zero-filled stubs, so picture/audio essence checks only run against the real generated and ISDCF DCPs. The ISDCF cases pass when `certificate_expired` is the only error, since the reference content's certificates expired.
 
 | Category | CTP Section | Covered here |
 |----------|-------------|--------------|
