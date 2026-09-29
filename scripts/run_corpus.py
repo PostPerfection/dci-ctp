@@ -36,7 +36,7 @@ ALL_CODES = [
     "xml_parse_error", "xml_schema_violation", "schema_validation_skipped",
     "check_skipped",
     "invalid_uuid", "missing_required_element", "pkl_hash_mismatch",
-    "pkl_size_mismatch", "pkl_missing_asset_reference",
+    "pkl_size_mismatch", "manifest_size_mismatch", "pkl_missing_asset_reference",
     "pkl_annotation_text_mismatch", "cpl_invalid_duration",
     "cpl_mismatched_durations", "cpl_missing_reel", "cpl_invalid_edit_rate",
     "cpl_invalid_content_kind", "cpl_missing_hash", "cpl_pkl_hash_mismatch",
@@ -51,15 +51,18 @@ ALL_CODES = [
     "smpte_naming_violation", "smpte_namespace_wrong",
     "interop_namespace_wrong", "picture_invalid_resolution",
     "picture_invalid_frame_rate", "picture_not_imf_profile",
-    "picture_colour_missing", "picture_coding_label_mismatch",
-    "picture_pixel_layout_mismatch", "j2k_bitrate_exceeded",
+    "picture_colour_missing", "picture_out_of_gamut",
+    "picture_coding_label_mismatch", "picture_pixel_layout_mismatch",
+    "picture_samples_not_rgb", "j2k_bitrate_exceeded",
     "picture_bitrate_measured", "j2k_invalid_profile",
     "j2k_invalid_component_count", "j2k_legacy_ffff", "j2k_guard_bits",
     "j2k_missing_tlm", "j2k_poc_invalid", "j2k_parameters_vary",
-    "j2k_codestream_summary", "sound_invalid_sample_rate",
-    "sound_invalid_channel_count", "sound_invalid_quantization",
-    "sound_invalid_block_align", "sound_clipping", "sound_silent",
-    "main_sound_config_invalid", "sound_channel_config_invalid",
+    "j2k_codestream_summary", "hdr_metadata_summary", "hdr_metadata_invalid",
+    "sound_invalid_sample_rate", "sound_invalid_channel_count",
+    "sound_invalid_quantization", "sound_invalid_block_align", "sound_clipping",
+    "sound_true_peak_exceeded", "sound_loudness_out_of_range", "sound_silent",
+    "loudness_exceeds_limit", "main_sound_config_invalid",
+    "sound_channel_config_invalid",
     "subtitle_parse_error", "subtitle_invalid_timing",
     "subtitle_frame_rate_mismatch", "subtitle_font_missing",
     "subtitle_glyph_missing", "subtitle_first_event_early",
@@ -76,6 +79,7 @@ ALL_CODES = [
     "partially_encrypted", "projector_frame_rate_support",
     "projector_4k_stereo_support", "distributor_audio_channel_count",
     "isdcf_naming_violation", "encryption_detected", "kdm_required",
+    "netflix_delivery_violation",
     "kdm_expired", "kdm_not_yet_valid", "kdm_thumbprint_invalid",
     "kdm_content_authenticator_invalid", "kdm_assume_trust_conflict",
     "reel_discontinuity", "reel_incoherent", "reel_too_short",
@@ -87,8 +91,11 @@ ALL_CODES = [
 ]
 
 # codes not covered by an isolated `dcpdoctor validate` fixture, with why (honest
-# gaps). Empty: every code has a fixture.
-UNCOVERED_REASONS = {}
+# gaps)
+UNCOVERED_REASONS = {
+    "mxf_hash_mismatch": "fires only when an encrypted track's frame 0 fails its "
+                         "MIC check, which needs the content key at validate time",
+}
 
 GREEN, RED, CYAN, NC = "\033[0;32m", "\033[0;31m", "\033[0;36m", "\033[0m"
 

@@ -1656,7 +1656,9 @@ def _(d):
 
 @fixture("sound_invalid_sample_rate", ["sound_invalid_sample_rate"], ["--check-mxf"],
          "Sound MXF AudioSamplingRate KLV byte-patched 48000/1 -> 44100/1 so the "
-         "prober reports a non-DCI rate", copy_mxf=True)
+         "prober reports a non-DCI rate", copy_mxf=True,
+         # asdcplib refuses the patched descriptor, so the loudness pass reports it skipped
+         also=["check_skipped"])
 def _(d):
     # rational 48000/1 = 0000BB80 00000001 -> 44100/1 = 0000AC44 00000001
     patch_bytes(sound_mxf(d), "0000BB8000000001", "0000AC4400000001")
@@ -1667,8 +1669,9 @@ def _(d):
          "Sound MXF QuantizationBits (local tag 3d01) patched to 16 bits, which "
          "DCI does not allow",
          copy_mxf=True,
-         # block align is derived from the bit depth, so changing one contradicts the other
-         also=["sound_invalid_block_align"])
+         # block align is derived from the bit depth, so changing one contradicts the
+         # other, and 24-bit samples read as 16-bit words peak near full scale
+         also=["sound_invalid_block_align", "sound_true_peak_exceeded"])
 def _(d):
     patch_local_tag(sound_mxf(d), "3d01", 4, 16)
 
@@ -1677,7 +1680,9 @@ def _(d):
          ["--check-mxf"],
          "Sound MXF WaveAudioDescriptor BlockAlign (local tag 3d0a) patched one "
          "channel short of channels x bytes-per-sample",
-         copy_mxf=True)
+         copy_mxf=True,
+         # asdcplib refuses the patched descriptor, so the loudness pass reports it skipped
+         also=["check_skipped"])
 def _(d):
     mxf = sound_mxf(d)
     bytes_per_sample = local_tag_value(mxf, "3d01", 4) // 8
@@ -1743,15 +1748,16 @@ def _(d):
 @fixture("mxf_unreadable", ["mxf_unreadable"], ["--check-mxf"],
          "Picture MXF truncated to non-MXF bytes; PKL resealed to it",
          copy_mxf=True,
-         # a truncated file is both unreadable and structurally invalid
-         also=["mxf_invalid_structure"])
+         # a truncated file is both unreadable and structurally invalid, and every
+         # essence check downstream reports it skipped
+         also=["mxf_invalid_structure", "check_skipped"])
 def _(d):
     mxf = picture_mxf(d)
     with open(mxf, "wb") as f:
         f.write(b"NOT AN MXF FILE" * 4)
 
 
-@fixture("manifest_size_mismatch", ["mxf_hash_mismatch"], ["--manifest", "@refmanifest_bad.json"],
+@fixture("manifest_size_mismatch", ["manifest_size_mismatch"], ["--manifest", "@refmanifest_bad.json"],
          "validate --manifest with a reference size that differs from the picture MXF",
          reseal_after=False, baseline="invalid/manifest_size_mismatch",
          baseline_flags=["--manifest", "@refmanifest_good.json"])
@@ -1846,8 +1852,9 @@ def _(d):
          "Picture MXF first-frame SIZ Csiz byte-patched 3 -> 4 so the codestream "
          "declares 4 components (asdcp-wrap refuses a 4-component essence, so the "
          "count is patched into a valid 3-component wrap)", copy_mxf=True,
-         # only frame 0 is patched, so frame 1 onward disagrees with it
-         also=["j2k_parameters_vary"])
+         # only frame 0 is patched, so frame 1 onward disagrees with it, and the
+         # gamut sampler cannot decode the patched frame
+         also=["j2k_parameters_vary", "check_skipped"])
 def _(d):
     patch_j2k_component_count(picture_mxf(d))
 
@@ -2288,13 +2295,13 @@ def main():
         "is_valid_baseline": False,
         "expected_codes": ["j2k_codestream_summary"],
         "also_emits": [],
-        "flags": ["--deep-j2k"],
+        "flags": [],
         "baseline": "valid/dcp_ov",
-        "baseline_flags": [],
+        "baseline_flags": ["--no-deep-j2k"],
         "notes": "the base DCP's picture codestream summarised by the per-frame "
                  "deep-J2K scan; the code is INFO with no pass/fail, so the "
-                 "assertion is that --deep-j2k turns the summary on and no flags "
-                 "leaves it off",
+                 "assertion is that the default scan reports the summary and "
+                 "--no-deep-j2k leaves it off",
     })
 
     # projector_4k_stereo_support reports a playability risk rather than a defect,
@@ -2325,13 +2332,15 @@ def main():
             "package_type": "imf",
             "is_valid_baseline": False,
             "expected_codes": ["picture_bitrate_measured"],
-            "also_emits": [],
-            "flags": ["--check-mxf"],
+            # the default deep scan also summarises the codestream, the baseline turns it off
+            "also_emits": ["j2k_codestream_summary"],
+            "flags": [],
             "baseline": "valid/imf_ov",
-            "baseline_flags": [],
+            "baseline_flags": ["--no-mxf", "--no-deep-j2k"],
             "notes": "IMF IMP picture track measured through the AS-02 reader; the "
-                     "code is INFO with no pass/fail, so the assertion is that "
-                     "--check-mxf turns the measurement on and no flags leaves it off",
+                     "code is INFO with no pass/fail, so the assertion is that the "
+                     "default essence pass reports the measurement and --no-mxf "
+                     "--no-deep-j2k leaves it off",
         })
 
     # schema_validation_skipped needs a schema directory that holds an XSD (or

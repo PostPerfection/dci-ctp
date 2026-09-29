@@ -108,7 +108,7 @@ build "$CORPUS/.bitrate_src" \
     --video-bit-rate 250
 # Atmos AuxData (429-18)
 build "$VALID/dcp_atmos" \
-    --title "CTPAtmos_TST_F_EN_US_51-ATMOS_2K_PPF_20260721_PPF_SMPTE_OV" \
+    --title "CTPAtmos_TST_F_EN_US_51-IAB_2K_PPF_20260721_PPF_SMPTE_OV" \
     --content-type TST --video "$LEFT" --audio "$WAV51" --atmos "$ATMOS"
 # mono: no MCA soundfield, used as the unlabeled-sound fixture
 build "$CORPUS/.mono_src" \
@@ -270,6 +270,8 @@ build_dom() {
     rm -rf "$out" "$film"
     "$DOM" --config "$DOMCONFIG" --standard "$standard" --no-encrypt \
         -c TST --twok -a 6 -n "$name" "$LEFT" "$WAV51" -o "$film" >/dev/null 2>&1
+    # dcpomatic2_create has no territory option and the ISDCF name drops the field without one
+    sed -i 's|<TerritoryType>specific</TerritoryType>|&<ReleaseTerritory>US</ReleaseTerritory>|' "$film/metadata.xml"
     "$DOM_CLI" --config "$DOMCONFIG" "$film" >/dev/null 2>&1
     local dcp
     dcp=$(find "$film" -maxdepth 1 -mindepth 1 -type d -name "${name}_*" | head -1)
